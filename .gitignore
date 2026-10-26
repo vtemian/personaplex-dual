@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+vendor/
+data/
+docker/src/
+docker/vendor/
+runs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.env
