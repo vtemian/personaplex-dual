@@ -34,4 +34,4 @@ fetch-weights:
 	SECRETS=HF_TOKEN sh scripts/submit.sh fetch-personaplex fetch_weights
 
 probe:
-	sh scripts/submit.sh probe-$(NAME) probe --base personaplex $(ARGS)
+	sh scripts/submit.sh probe-$(NAME) probe --base personaplex --name $(NAME) $(ARGS)
