@@ -37,7 +37,9 @@ def _digest(stem, salt):
 
 def test_ordered_matches_independent_sha256_golden():
     stems = ["alpha", "beta", "gamma", "delta", "dlg-001"]
-    want = sorted(stems, key=lambda s: (int(hashlib.sha256(f"{s}:x".encode()).hexdigest(), 16), s))
+    want = sorted(
+        stems, key=lambda s: (int(hashlib.sha256(f"{s}:x".encode()).hexdigest(), 16), s)
+    )
     assert ordered(stems, "x") == want
 
 
