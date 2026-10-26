@@ -35,3 +35,7 @@ fetch-weights:
 
 probe:
 	sh scripts/submit.sh probe-$(NAME) probe --base personaplex --name $(NAME) $(ARGS)
+
+.PHONY: render
+render:
+	sh scripts/submit.sh render-$(NAME) render --name render-$(NAME) $(ARGS)
