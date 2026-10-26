@@ -8,9 +8,10 @@ import json
 import os
 import pathlib
 from collections.abc import Sequence
+from typing import Any
 
 from dual.holdout import split
-from dual.render import holdout_record, tape_segments, training_rows
+from dual.render import holdout_record, holdout_row, tape_segments, training_rows
 from dual.turns import spans, text_row, typed_tokens
 
 VOICES = {"A": "vctk/p225_023.wav", "B": "vctk/p248_023.wav", "C": "vctk/p302_023.wav"}
@@ -21,6 +22,23 @@ def stable_seed(words: Sequence[str], voice: str) -> int:
     """A 32-bit seed that is the same in every process (str hash() is not)."""
     digest = hashlib.sha256(f"{' '.join(words)}|{voice}".encode()).digest()
     return int.from_bytes(digest[:4], "big")
+
+
+def validate_holdout(
+    records: Sequence[dict[str, Any]], voices: Sequence[str]
+) -> tuple[int, int, int]:
+    """Reads every holdout row the way the measure job will (holdout_row raises on a
+    row over the context or without a teacher answer). Returns (rows, max frames,
+    min answer window)."""
+    rows, max_frames, min_window = 0, 0, 10**9
+    for record in records:
+        for k in record["pupil_turns"]:
+            for rendering in ("typed", *voices, "tape"):
+                row, (start, end) = holdout_row(record, k, rendering)
+                rows += 1
+                max_frames = max(max_frames, row["frames"])
+                min_window = min(min_window, end - start)
+    return rows, max_frames, min_window
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,8 +100,21 @@ def main() -> None:
             voice_cache[key] = encode_wav(mimi, v.pcm, "cuda")
         return voice_cache[key]
 
+    (out / "stems.json").write_text(
+        json.dumps(
+            {
+                "held": held,
+                "train": train,
+                "voices": VOICES,
+                "chalkboard_sha": pathlib.Path("/app/vendor/SHA").read_text().strip(),
+            },
+            indent=1,
+        )
+    )
+
     n_rows = 0
-    max_frames = 0
+    train_max = 0
+    held_records: list[dict[str, Any]] = []
     with (
         (out / "rows-train.jsonl").open("w") as rows_f,
         (out / "holdout.jsonl").open("w") as hold_f,
@@ -96,32 +127,25 @@ def main() -> None:
             if stem in held:
                 h = holdout_record(stem, sp, segs, typed, voiced, VOICES)
                 hold_f.write(json.dumps(h) + "\n")
-                max_frames = max(max_frames, h["base"]["frames"])
+                held_records.append(h)
                 print("held", stem, "pupil turns", sum(s.party == "pupil" for s in sp))
             else:
+                stem_rows = 0
                 for row in training_rows(stem, sp, segs, typed):
                     rows_f.write(json.dumps(row) + "\n")
                     n_rows += 1
-                    max_frames = max(max_frames, row["frames"])
-                print("train", stem, "rows 3")
+                    stem_rows += 1
+                    train_max = max(train_max, row["frames"])
+                print("train", stem, "rows", stem_rows)
     # Determinism: the same words in the same voice encode to the same codes twice.
     words = ("the", "same", "words")
     first = voiced(words, VOICES["A"])
     voice_cache.clear()
     again = voiced(words, VOICES["A"])
     print("tts deterministic:", first == again)
-    (out / "stems.json").write_text(
-        json.dumps(
-            {
-                "held": held,
-                "train": train,
-                "voices": VOICES,
-                "chalkboard_sha": pathlib.Path("/app/vendor/SHA").read_text().strip(),
-            },
-            indent=1,
-        )
-    )
-    print("max row frames:", max_frames)
+    n_hold, hold_max, min_window = validate_holdout(held_records, tuple(VOICES))
+    print(f"holdout rows {n_hold} max frames {hold_max} min answer window {min_window}")
+    print("train max row frames:", train_max)
     print(f"rendered train rows {n_rows} holdout {len(held)}")
 
 
