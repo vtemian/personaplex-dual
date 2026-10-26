@@ -11,3 +11,5 @@ What this is: `docs/plans/2026-10-26-dual-input-design.md` (the question) and
 - Pure modules in `src/dual/*.py` never import torch at module level except `kl.py`; the
   GPU-only code is `src/dual/model.py` and `src/dual/jobs/*.py`, and imports `moshi` inside
   functions, as chalkboard does.
+- Weights: the image is slim and bakes no weights; kyutai models in `/srv/spark/hf/hub` on
+  the box (rsync, never Docker); PersonaPlex in `/srv/spark/models/personaplex-7b-v1`.

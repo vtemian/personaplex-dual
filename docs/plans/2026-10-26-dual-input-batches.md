@@ -32,7 +32,7 @@ text and audio logits aligned to the input) and chalkboard's `attach_trunk_lora`
    teacher scenes with no pupil (`docs/results/derivatives-runs.md:307-325` in chalkboard).
    Everything downstream shrinks: 13 dialogues held out, 117 train, **351 training rows**
    (three per dialogue), about 585 typed-turn instances and 1,170 spoken; ladder rungs of
-   14, 29, 58 and 117 dialogues. Training a run takes minutes, not hours, so the whole
+   15, 30, 59 and 117 dialogues. Training a run takes minutes, not hours, so the whole
    ladder is cheap. Growing the corpus is chalkboard's generator (`make dialogues` there)
    and is **not** in this plan; B5 ends at a human gate that asks whether to grow it.
 2. **The tape's pupil voice is moshika, not a TTS.** Only each dialogue's opening `ask` is
