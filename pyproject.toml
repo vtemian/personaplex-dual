@@ -9,6 +9,7 @@ dependencies = [
     "huggingface-hub>=0.24,<1.0",
     "safetensors>=0.4",
     "sparks-dgx>=0.1.1",
+    "sphn==0.2.1",
     "torch>=2.13.0",
 ]
 
