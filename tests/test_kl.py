@@ -78,3 +78,9 @@ def test_bar_refuses_mismatched_or_empty_input():
         bar([0.1], [0.1, 0.2])
     with pytest.raises(ValueError, match="one number per"):
         bar([], [])
+
+
+def test_bar_percentile_is_numpys_linear_interpolation():
+    got = bar([1, 2, 3, 4, 5], [1, 2, 3, 4, 5])
+    assert got.median_gap == 3
+    assert got.p90_gap == pytest.approx(4.6)

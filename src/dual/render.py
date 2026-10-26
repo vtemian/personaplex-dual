@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from dual.constants import CONTEXT
+from dual.constants import CONTEXT, PAD
 from dual.frames import (
     Row,
     Segment,
@@ -32,6 +32,12 @@ def tape_segments(
     spans: Sequence[TurnSpan], text: Sequence[int], record: dict[str, Any]
 ) -> list[Segment]:
     own, pupil = record["audio"], record["user_audio"]
+    for s in spans:
+        if s.party == "pupil" and any(t != PAD for t in text[s.start : s.end]):
+            name = record.get("id", record.get("stem", "?"))
+            raise ValueError(
+                f"{name}: text on pupil frames {s.start}..{s.end} (turn {s.index})"
+            )
     return [
         tape_segment(
             text[s.start : s.end],
@@ -139,6 +145,8 @@ def holdout_row(
     """The base row with pupil turn `turn` swapped for `rendering` ("tape" keeps it),
     and the half-open frame window of the teacher's answer after it, after the shift."""
     base = from_record(record["base"])
+    if not 0 <= turn < len(base.spans) or base.spans[turn].party != "pupil":
+        raise ValueError(f"{record['id']}: turn {turn} is not a pupil turn")
     parts: list[tuple[str, str, Segment]] = []
     for i, s in enumerate(base.spans):
         if i == turn and rendering != "tape":

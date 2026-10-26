@@ -128,6 +128,7 @@ def test_holdout_row_swaps_one_turn_and_shifts_the_answer():
     # A voiced 'e' is 2 frames + the gap
     assert row["frames"] == FRAMES - 9 + 2 + GAP_FRAMES
     assert row["scored"][start:end] == [1] * (end - start)
+    assert start == row["spans"][2]["end"]
 
 
 def test_holdout_row_tape_reproduces_the_base_row():
@@ -170,3 +171,16 @@ def test_assemble_refuses_past_the_context():
     long = typed_segment([100, 101, 102, 103])  # 4 + gap = 10 frames
     with pytest.raises(ValueError, match="over moshi's"):
         assemble("s", spans, segs, {0: ("typed", long)})
+
+
+def test_tape_segments_refuse_text_on_a_pupil_frame():
+    text = fake_text()
+    text[30] = 777  # teacher text spilling into the second pupil span (28, 37)
+    with pytest.raises(ValueError, match=r"pupil.*28.*37"):
+        tape_segments(two_ask_spans(), text, fake_record())
+
+
+def test_holdout_row_refuses_a_teacher_index():
+    rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
+    with pytest.raises(ValueError, match="not a pupil"):
+        holdout_row(rec, 1, "typed")
