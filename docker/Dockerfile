@@ -40,18 +40,11 @@ RUN pip install --no-cache-dir --no-deps moshi==0.2.13 \
       "einops>=0.7,<0.9" \
       "sentencepiece>=0.2.0,<0.3"
 
-# moshiko 15.8 GB (15.4 GB bf16 + 385 MB Mimi sidecar) and TTS 4.07 GB, baked
-# rather than fetched per run. The one expresso voice tts_corpus.VOICE names,
-# because get_voice_path hits the hub and HF_HUB_OFFLINE=1 would fail it.
-ENV HF_HOME=/opt/hf
-RUN python -c "\
-from huggingface_hub import snapshot_download; \
-from moshi.models.loaders import CheckpointInfo; \
-from moshi.models.tts import DEFAULT_DSM_TTS_REPO, DEFAULT_DSM_TTS_VOICE_REPO; \
-CheckpointInfo.from_hf_repo('kyutai/moshiko-pytorch-bf16'); \
-CheckpointInfo.from_hf_repo(DEFAULT_DSM_TTS_REPO); \
-snapshot_download(DEFAULT_DSM_TTS_VOICE_REPO, allow_patterns=['expresso/ex03-ex01_happy_001_channel1_334s.wav*'])" \
- && chmod -R a+rX /opt/hf
+# No weights are baked: the image stays ~5 GB so a push is cheap. The kyutai repos
+# (moshiko, tts-1.6b-en_fr, tts-voices) live in the box's shared HF cache, placed by
+# rsync over ssh; PersonaPlex is models/personaplex-7b-v1 under the shared dir, from
+# `make fetch-weights`. The shared dir is the job's cwd, mounted at its own path.
+ENV HF_HOME=/srv/spark/hf
 
 # The job runs as the submitting uid, which has no /etc/passwd entry, so HOME
 # is unset and torch's Triton cache lands on /.triton - killing the run after
