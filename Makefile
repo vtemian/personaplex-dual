@@ -55,4 +55,4 @@ measure:
 bar:
 	mkdir -p runs
 	scp -r '$(BOX):/srv/spark/runs/measure-*/measure' runs/ 2>/dev/null || true
-	uv run python -m dual.report runs/ > docs/results/bar.md && cat docs/results/bar.md
+	PYTHONPATH=src uv run python -m dual.report runs/ > docs/results/bar.md && cat docs/results/bar.md
