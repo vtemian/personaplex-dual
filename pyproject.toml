@@ -1,0 +1,46 @@
+[project]
+name = "personaplex-dual"
+version = "0.1.0"
+description = "One speech model, every pupil turn typed or spoken: the door and its bar"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2",
+    "sentencepiece>=0.2",
+    "huggingface-hub>=0.24,<1.0",
+    "safetensors>=0.4",
+    "sparks-dgx>=0.1.1",
+    "sphn==0.2.1",
+    "torch>=2.13.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-xdist>=3.8", "ruff>=0.8", "mypy>=1.13"]
+
+[tool.pytest.ini_options]
+addopts = "-n auto -q"
+testpaths = ["tests"]
+pythonpath = ["src", "vendor"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = ["vendor", "docker"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "RUF"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN"]
+
+[tool.mypy]
+strict = true
+mypy_path = "src:vendor"
+files = ["src/dual"]
+exclude = ["vendor"]
+
+[[tool.mypy.overrides]]
+module = ["chalkboard.*", "training.*", "harness.*", "moshi.*", "sentencepiece", "sparks.*", "numpy.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
