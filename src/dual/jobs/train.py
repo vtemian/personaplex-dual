@@ -132,7 +132,12 @@ def main() -> None:
                 loss.backward()  # type: ignore[no-untyped-call]
                 norm = float(torch.nn.utils.clip_grad_norm_(params, CLIP))
                 opt.step()
-                vals = (float(loss), float(text), float(audio), norm)
+                vals = (
+                    float(loss.detach()),
+                    float(text.detach()),
+                    float(audio.detach()),
+                    norm,
+                )
                 if not all(map(math.isfinite, vals)):
                     raise RuntimeError(f"epoch {epoch} step {i}: non-finite {vals}")
                 norms.append(norm)
