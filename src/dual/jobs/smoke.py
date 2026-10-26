@@ -5,6 +5,7 @@ forward on a 40-frame row of PAD / SILENCE / SINE and checks the logits, then at
 the trunk LoRA and round-trips its state. No training."""
 
 import argparse
+import gc
 import os
 import pathlib
 import time
@@ -44,13 +45,13 @@ def path_smoke() -> None:
 
 def base_smoke(name: str) -> None:
     from dual.model import (
-        adapter_state,
         attach_lora,
         codes_from_row,
         describe,
         forward,
-        load_adapters,
         load_base,
+        read_adapters,
+        save_adapters,
     )
 
     start = time.monotonic()
@@ -80,17 +81,41 @@ def base_smoke(name: str) -> None:
     print("greedy text on frames:", top[:SMOKE_FRAMES])
     assert out.audio_logits.shape[1] == CODEBOOKS
     modules = attach_lora(base)
-    state = adapter_state(base)
-    load_adapters(base, state)
+    # lora_B starts at zero, so a round-trip of it proves nothing: make it real.
+    gen = torch.Generator().manual_seed(0)
+    with torch.no_grad():
+        for n, p in base.lm.named_parameters():
+            if ".lora_B" in n:
+                noise = torch.randn(p.shape, generator=gen) * 0.02
+                p.copy_(noise.to(device=p.device, dtype=p.dtype))
+    with torch.no_grad():
+        first = forward(base.lm, codes).text_logits
+    bare = text
+    moved = float((first[mask] - bare[mask]).abs().max())
+    print("random lora_B moved text logits by", moved)
+    if moved == 0.0:
+        raise RuntimeError("random adapters changed nothing: the round-trip is vacuous")
+    path = "/tmp/adapters-smoke.pt"
+    save_adapters(base, path)
+    n_params = sum(p.numel() for n, p in base.lm.named_parameters() if ".lora_" in n)
+    del base
+    gc.collect()
+    torch.cuda.empty_cache()
+    again = load_base(name)
+    attach_lora(again)
+    read_adapters(again, path)
+    with torch.no_grad():
+        second = forward(again.lm, codes).text_logits
+    delta = float((second[mask] - first[mask]).abs().max())
+    equal = bool(torch.equal(second[mask], first[mask]))
     print(
-        "lora:",
-        modules,
-        "modules,",
-        sum(v.numel() for v in state.values()),
-        "params,",
-        len(state),
-        "tensors, round-trip ok",
+        f"lora: {modules} modules, {n_params} params, round-trip equal {equal}, "
+        f"max |delta logits| {delta}"
     )
+    if delta >= 1e-3:
+        raise RuntimeError(f"round-trip delta {delta} >= 1e-3")
+    if not equal:
+        print("note: not bit-equal but under 1e-3 (bf16 nondeterminism)")
 
 
 def main() -> None:

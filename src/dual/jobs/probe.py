@@ -114,8 +114,6 @@ def run_one(
         "spoken_frames": len(spoken),
         "first_answer": first_answer,
         "typed_frames": free_at - typed_at,
-        "forced_ok": session.text[typed_at:free_at]
-        == [*map(int, typed), *[PAD] * GAP_FRAMES],
         "free": session.text[free_at:],
         "audio": session.audio[audio_at:],
     }
@@ -200,7 +198,6 @@ def main() -> None:
                 "typed_words": second,
                 "typed_ids": typed,
                 "typed_pieces": [spm.IdToPiece(int(i)) for i in typed],
-                "forced_ok": res["forced_ok"],
                 "first_answer": text_of(content_ids(res["first_answer"])),
                 "emitted": emitted,
                 "emitted_ids": res["free"],
@@ -217,7 +214,7 @@ def main() -> None:
             print(
                 f"{stem} {variant}: {verdict} in {time.monotonic() - start:.1f}s | "
                 f"first answer: {row['first_answer']!r} | typed: {' '.join(second)!r}"
-                f" | emitted: {emitted!r} | forced_ok {res['forced_ok']}"
+                f" | emitted: {emitted!r}"
             )
             if res["audio"]:
                 with torch.no_grad():

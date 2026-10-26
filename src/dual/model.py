@@ -13,12 +13,15 @@ from typing import Any
 import torch
 
 from dual.constants import (
+    AUDIO_CARD,
     BASES,
     CODEBOOKS,
+    CONTEXT,
     MOSHIKO,
     MOSHIKO_REPO,
     PERSONAPLEX_FILES,
     STREAMS,
+    TEXT_CARD,
 )
 
 RANK = 16
@@ -119,8 +122,64 @@ def load_adapters(base: Base, state: dict[str, torch.Tensor]) -> None:
         )
 
 
+ADAPTER_META_KEYS = ("base", "rank", "scaling", "params")
+
+
+def check_adapter_meta(got: dict[str, Any], want: dict[str, Any]) -> None:
+    for key in ADAPTER_META_KEYS:
+        if key not in got:
+            raise ValueError(f"adapter file has no {key!r} in its metadata")
+        if got[key] != want[key]:
+            raise ValueError(
+                f"adapter {key} mismatch: file {got[key]!r}, base {want[key]!r}"
+            )
+
+
+def adapter_meta(base: Base) -> dict[str, Any]:
+    return {
+        "base": base.name,
+        "rank": RANK,
+        "scaling": SCALING,
+        "params": ADAPTER_PARAMS,
+    }
+
+
+def save_adapters(base: Base, path: str | pathlib.Path) -> None:
+    """The adapter tensors plus the base, rank, scaling and params of their setup."""
+    torch.save({"meta": adapter_meta(base), "state": adapter_state(base)}, path)
+
+
+def read_adapters(base: Base, path: str | pathlib.Path) -> None:
+    """Loads a save_adapters file into `base`, refusing one made for another setup."""
+    blob = torch.load(path, map_location="cpu", weights_only=True)
+    check_adapter_meta(blob.get("meta", {}), adapter_meta(base))
+    load_adapters(base, blob["state"])
+
+
+def check_row(record: dict[str, Any]) -> None:
+    """Refuses a row moshi would index out of range or run past its context."""
+    t = len(record["text"])
+    if t > CONTEXT:
+        raise ValueError(f"row has {t} frames, over moshi's CONTEXT of {CONTEXT}")
+    if (
+        min(record["text"], default=0) < 0
+        or max(record["text"], default=0) >= TEXT_CARD
+    ):
+        raise ValueError(f"text ids outside [0, {TEXT_CARD})")
+    for stream in ("own", "pupil"):
+        rows = record[stream]
+        if len(rows) != t:
+            raise ValueError(f"{stream} has {len(rows)} frames, text has {t}")
+        flat = [c for frame in rows for c in frame]
+        if any(len(frame) != CODEBOOKS for frame in rows):
+            raise ValueError(f"{stream} frames are not {CODEBOOKS} codes wide")
+        if flat and (min(flat) < 0 or max(flat) >= AUDIO_CARD):
+            raise ValueError(f"{stream} ids outside [0, {AUDIO_CARD})")
+
+
 def codes_from_row(record: dict[str, Any], device: str = "cuda") -> torch.Tensor:
     """[1, 17, T] long: text, own 8, pupil 8. Undelayed; LMModel.forward delays."""
+    check_row(record)
     text = torch.tensor(record["text"], dtype=torch.long)
     own = torch.tensor(record["own"], dtype=torch.long).t()
     pupil = torch.tensor(record["pupil"], dtype=torch.long).t()
@@ -139,6 +198,13 @@ class Forward:
 
 
 def forward(lm: Any, codes: torch.Tensor) -> Forward:
+    # The one place the mode is fixed. Train mode, always: in moshi 0.2.13 the only
+    # thing `training` changes in the lm is ActivationGating, which in eval takes a
+    # compiled kernel and in train runs eagerly (no_compile). attach_measured leaves
+    # adapted models in train mode, so bare models must run it too, or bare-vs-adapted
+    # (KL) would differ by compilation. No dropout exists in the lm (SDPA dropout_p=0.0,
+    # no nn.Dropout) and activation checkpointing is a constructor flag, off by default.
+    lm.train()
     with torch.autocast("cuda", dtype=torch.bfloat16):
         out = lm(codes)
     return Forward(
