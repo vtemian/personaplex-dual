@@ -22,3 +22,15 @@ vendor:
 
 data:
 	CHALKBOARD=$(CHALKBOARD) BOX=$(BOX) TAPE=$(TAPE) sh scripts/data.sh
+
+.PHONY: smoke fetch-weights probe
+NAME ?= dev
+
+smoke:
+	sh scripts/submit.sh smoke-$(NAME) smoke $(ARGS)
+
+fetch-weights:
+	SECRETS=HF_TOKEN sh scripts/submit.sh fetch-personaplex fetch_weights
+
+probe:
+	sh scripts/submit.sh probe-$(NAME) probe --base personaplex $(ARGS)
