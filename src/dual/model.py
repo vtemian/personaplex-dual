@@ -144,9 +144,21 @@ def adapter_meta(base: Base) -> dict[str, Any]:
     }
 
 
-def save_adapters(base: Base, path: str | pathlib.Path) -> None:
-    """The adapter tensors plus the base, rank, scaling and params of their setup."""
-    torch.save({"meta": adapter_meta(base), "state": adapter_state(base)}, path)
+def save_adapters(
+    base: Base, path: str | pathlib.Path, extra: dict[str, Any] | None = None
+) -> None:
+    """The adapter tensors plus the base, rank, scaling and params of their setup;
+    `extra` (epoch, slice, ...) rides along under "run" and is never validated."""
+    blob: dict[str, Any] = {"meta": adapter_meta(base), "state": adapter_state(base)}
+    if extra:
+        blob["run"] = dict(extra)
+    torch.save(blob, path)
+
+
+def adapter_run(path: str | pathlib.Path) -> dict[str, Any]:
+    """The "run" metadata of a save_adapters file ({} when none was given)."""
+    blob = torch.load(path, map_location="cpu", weights_only=True)
+    return dict(blob.get("run", {}))
 
 
 def read_adapters(base: Base, path: str | pathlib.Path) -> None:
