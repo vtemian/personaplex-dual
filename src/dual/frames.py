@@ -73,7 +73,7 @@ def tape_segment(
 @dataclass(frozen=True)
 class Span:
     party: str  # "pupil" | "teacher"
-    rendering: str  # "tape" | "typed" | "voice:<name>"
+    rendering: str  # "tape" | "typed" | a voice label ("A", "B", "C")
     start: int
     end: int  # half-open
 
