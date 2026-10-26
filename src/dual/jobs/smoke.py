@@ -1,4 +1,4 @@
-"""Proves the path: sparks import, /data, the shared dir, the baked moshiko and
+"""Proves the path: sparks import, /data, the shared dir, moshiko and
 Mimi, the GPU. No PersonaPlex, no training."""
 
 import os

@@ -30,6 +30,7 @@ smoke:
 	sh scripts/submit.sh smoke-$(NAME) smoke $(ARGS)
 
 fetch-weights:
+	@test -n "$$HF_TOKEN" || { echo "export HF_TOKEN (set -a; . ./.env; set +a)"; exit 1; }
 	SECRETS=HF_TOKEN sh scripts/submit.sh fetch-personaplex fetch_weights
 
 probe:

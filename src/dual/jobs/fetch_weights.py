@@ -4,6 +4,10 @@
 import os
 import pathlib
 
+# huggingface_hub reads HF_HUB_OFFLINE once, at import; the image sets it to 1.
+os.environ.pop("HF_HUB_OFFLINE", None)
+
+import huggingface_hub.constants
 from huggingface_hub import snapshot_download
 
 from dual.constants import PERSONAPLEX_FILES
@@ -12,9 +16,9 @@ REPO = "nvidia/personaplex-7b-v1"
 
 
 def main() -> None:
-    os.environ.pop("HF_HUB_OFFLINE", None)
     target = pathlib.Path.cwd() / "models" / "personaplex-7b-v1"
     target.mkdir(parents=True, exist_ok=True)
+    huggingface_hub.constants.HF_HUB_OFFLINE = False
     snapshot_download(
         REPO,
         local_dir=str(target),

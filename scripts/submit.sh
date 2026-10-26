@@ -2,10 +2,11 @@
 # scripts/submit.sh NAME JOB [args...]: assemble the context, submit, print the job id.
 # JOB is a module under dual.jobs. $SECRETS (space-separated names) become --secret flags.
 set -eu
+[ $# -ge 2 ] || { echo "usage: submit.sh NAME JOB [args]"; exit 2; }
 name="$1"; job="$2"; shift 2
 [ -f vendor/SHA ] || { echo "run make vendor first"; exit 1; }
-if [ -z "${IMAGE:-}" ] && [ -z "${DUAL_ALLOW_DIRTY:-}" ] && [ -n "$(git status --porcelain -- src)" ]; then
-  echo "uncommitted changes under src/: the image would carry the previous commit's tag"; exit 1
+if [ -z "${IMAGE:-}" ] && [ -z "${DUAL_ALLOW_DIRTY:-}" ] && [ -n "$(git status --porcelain -- src docker/Dockerfile docker/.dockerignore)" ]; then
+  echo "uncommitted changes under src/ or docker/: the image would carry the previous commit's tag"; exit 1
 fi
 # -L: vendor/ (and src/, in a worktree) may be symlinks; Docker cannot follow a link
 # out of its context, so the context must hold the real files.
