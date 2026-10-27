@@ -14,6 +14,7 @@ import torch
 from sparks.emit import track
 
 from dual.ladder import rung
+from dual.model import EAGER_DEFAULT, set_compile_mode
 
 LR = 2e-5
 BETAS = (0.9, 0.95)
@@ -32,6 +33,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--frames-per-batch", type=int, default=FRAMES_PER_BATCH)
+    p.add_argument(
+        "--resume", action="store_true", help="continue from the latest epoch"
+    )
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--eager", action="store_true", help="no torch.compile")
+    mode.add_argument("--compile", action="store_true", help="torch.compile")
     return p.parse_args()
 
 
@@ -82,12 +89,53 @@ def batches(
     return out
 
 
+def latest_checkpoint(out: pathlib.Path) -> tuple[int, pathlib.Path] | None:
+    """(epoch, path) of the highest model-epoch-NN.pt in `out`, none if empty."""
+    found = [(int(p.stem.rsplit("-", 1)[1]), p) for p in out.glob("model-epoch-*.pt")]
+    return max(found, default=None)
+
+
+def refuse_stale(out: pathlib.Path, resume: bool) -> None:
+    if not resume and latest_checkpoint(out) is not None:
+        raise SystemExit(
+            f"{out} already holds checkpoints: pass --resume to continue, "
+            "or use a new --name"
+        )
+
+
+def capture_rng(rng: random.Random) -> dict[str, Any]:
+    """Every RNG the loop draws from, as weights_only-loadable values."""
+    state: dict[str, Any] = {
+        "batches": rng.getstate(),
+        "python": random.getstate(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def restore_rng(rng: random.Random, state: dict[str, Any]) -> None:
+    rng.setstate(state["batches"])
+    random.setstate(state["python"])
+    torch.set_rng_state(state["torch"])
+    if "cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
 def main() -> None:
+    args = parse_args()
+    set_compile_mode(args.eager or (EAGER_DEFAULT and not args.compile))
     from training.moshi.trunk_lora import unmoved
 
-    from dual.model import attach_lora, load_base, save_adapters
+    from dual.model import (
+        attach_lora,
+        load_base,
+        load_blob_adapters,
+        read_blob,
+        save_adapters,
+    )
 
-    args = parse_args()
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
     render = pathlib.Path.cwd() / "runs" / args.render / "render"
@@ -104,6 +152,7 @@ def main() -> None:
     ]
     out = pathlib.Path.cwd() / "runs" / args.name / "train"
     out.mkdir(parents=True, exist_ok=True)
+    refuse_stale(out, args.resume)
     limit = args.frames_per_batch
     steps_per_epoch = len(batches(rows, random.Random(0), limit))
     print(
@@ -116,12 +165,25 @@ def main() -> None:
     attach_lora(base)
     lm = base.lm
     params = [p for p in lm.parameters() if p.requires_grad]
-    opt = torch.optim.AdamW(params, lr=LR, betas=BETAS)
+    # weight_decay is chalkboard's: its dv3a trunk group
+    # (vendor/training/jobs/train_moshi.py:514) runs AdamW's default 0.01.
+    opt = torch.optim.AdamW(params, lr=LR, betas=BETAS, weight_decay=0.01)
+    first = 1
+    if args.resume:
+        latest = latest_checkpoint(out)
+        if latest is None:
+            raise SystemExit(f"--resume: no checkpoints in {out}")
+        blob = read_blob(latest[1])
+        load_blob_adapters(base, blob)
+        opt.load_state_dict(blob["resume"]["opt"])
+        restore_rng(rng, blob["resume"]["rng"])
+        first = int(blob["run"]["epoch"]) + 1
+        print(f"resumed from {latest[1].name}: continuing at epoch {first}")
 
     with track(
         total=args.epochs * steps_per_epoch, arm=f"{args.base}-{args.slice}"
     ) as run:
-        for epoch in range(1, args.epochs + 1):
+        for epoch in range(first, args.epochs + 1):
             t0 = time.monotonic()
             norms: list[float] = []
             totals: list[float] = []
@@ -155,7 +217,7 @@ def main() -> None:
                         f"rows {len(batch)}x{max(r['frames'] for r in batch)}"
                     )
             seconds = time.monotonic() - t0
-            if epoch == 1:
+            if epoch == first:
                 print("unmoved:", unmoved(lm))
             with torch.no_grad():
                 held_text = [float(losses(lm, [r])[0]) for r in held]
@@ -173,6 +235,7 @@ def main() -> None:
                     "seed": args.seed,
                     "name": args.name,
                 },
+                resume={"opt": opt.state_dict(), "rng": capture_rng(rng)},
             )
             tmp.rename(final)
             print(

@@ -39,6 +39,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--base", required=True)
     p.add_argument("--render", default="render-1")
     p.add_argument("--run", default=None, help="a train run's name; none = bare")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--eager", action="store_true", help="no torch.compile")
+    mode.add_argument("--compile", action="store_true", help="torch.compile")
     return p.parse_args()
 
 
@@ -104,9 +107,17 @@ def turn_lines(lm: Any, records: Sequence[dict[str, Any]], epoch: int) -> list[A
 
 
 def main() -> None:
-    from dual.model import adapter_run, attach_lora, load_base, read_adapters
+    from dual.model import (
+        EAGER_DEFAULT,
+        attach_lora,
+        load_base,
+        load_blob_adapters,
+        read_blob,
+        set_compile_mode,
+    )
 
     args = parse_args()
+    set_compile_mode(args.eager or (EAGER_DEFAULT and not args.compile))
     root = pathlib.Path.cwd() / "runs"
     render = root / args.render / "render"
     records = [
@@ -136,8 +147,9 @@ def main() -> None:
         if ckpt is None:
             epoch, slice_ = 0, None
         else:
-            meta = adapter_run(ckpt)
-            read_adapters(base, ckpt)
+            blob = read_blob(ckpt)  # once; the "resume" keys are ignored
+            meta = blob.get("run", {})
+            load_blob_adapters(base, blob)
             epoch, slice_ = int(meta["epoch"]), meta.get("slice")
         with torch.no_grad():
             lines = turn_lines(base.lm, records, epoch)

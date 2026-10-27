@@ -54,5 +54,6 @@ measure:
 
 bar:
 	mkdir -p runs
-	scp -r '$(BOX):/srv/spark/runs/measure-*/measure' runs/ 2>/dev/null || true
+	scp -r '$(BOX):/srv/spark/runs/measure-*/measure' runs/
+	@ls runs/measure/*/summary.json >/dev/null 2>&1 || { echo "no runs/measure*/summary.json after scp: run make measure first"; exit 1; }
 	PYTHONPATH=src uv run python -m dual.report runs/ > docs/results/bar.md && cat docs/results/bar.md

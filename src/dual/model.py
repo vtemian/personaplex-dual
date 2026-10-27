@@ -6,6 +6,7 @@ checks never load them.
 
 from __future__ import annotations
 
+import os
 import pathlib
 from dataclasses import dataclass
 from typing import Any
@@ -38,6 +39,16 @@ class Base:
     lm: Any  # moshi LMModel
     spm: Any  # sentencepiece processor
     info: Any  # CheckpointInfo, for get_mimi
+
+
+EAGER_DEFAULT = False
+
+
+def set_compile_mode(eager: bool) -> None:
+    """Call before anything imports moshi: moshi/utils/compile.py reads
+    NO_TORCH_COMPILE at import and then skips torch_compile_lazy."""
+    if eager:
+        os.environ["NO_TORCH_COMPILE"] = "1"
 
 
 def personaplex_dir() -> pathlib.Path:
@@ -145,25 +156,40 @@ def adapter_meta(base: Base) -> dict[str, Any]:
 
 
 def save_adapters(
-    base: Base, path: str | pathlib.Path, extra: dict[str, Any] | None = None
+    base: Base,
+    path: str | pathlib.Path,
+    extra: dict[str, Any] | None = None,
+    resume: dict[str, Any] | None = None,
 ) -> None:
     """The adapter tensors plus the base, rank, scaling and params of their setup;
-    `extra` (epoch, slice, ...) rides along under "run" and is never validated."""
+    `extra` (epoch, slice, ...) rides along under "run" and is never validated;
+    `resume` (optimizer and RNG state) under "resume", which readers ignore."""
     blob: dict[str, Any] = {"meta": adapter_meta(base), "state": adapter_state(base)}
     if extra:
         blob["run"] = dict(extra)
+    if resume:
+        blob["resume"] = resume
     torch.save(blob, path)
+
+
+def read_blob(path: str | pathlib.Path) -> dict[str, Any]:
+    """A checkpoint file as saved, loaded once (weights_only)."""
+    blob: dict[str, Any] = torch.load(path, map_location="cpu", weights_only=True)
+    return blob
 
 
 def adapter_run(path: str | pathlib.Path) -> dict[str, Any]:
     """The "run" metadata of a save_adapters file ({} when none was given)."""
-    blob = torch.load(path, map_location="cpu", weights_only=True)
-    return dict(blob.get("run", {}))
+    return dict(read_blob(path).get("run", {}))
 
 
 def read_adapters(base: Base, path: str | pathlib.Path) -> None:
     """Loads a save_adapters file into `base`, refusing one made for another setup."""
-    blob = torch.load(path, map_location="cpu", weights_only=True)
+    load_blob_adapters(base, read_blob(path))
+
+
+def load_blob_adapters(base: Base, blob: dict[str, Any]) -> None:
+    """Loads the adapters of an already-read checkpoint, refusing another setup."""
     check_adapter_meta(blob.get("meta", {}), adapter_meta(base))
     load_adapters(base, blob["state"])
 

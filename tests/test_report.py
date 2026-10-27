@@ -85,7 +85,7 @@ def test_read_refuses_two_summaries_for_one_run_base_epoch(tmp_path):
         d = tmp_path / "measure" / name
         d.mkdir(parents=True)
         (d / "summary.json").write_text(json.dumps([E1]))
-    with pytest.raises(ValueError, match="personaplex-s.*personaplex-s2"):
+    with pytest.raises(ValueError, match=r"personaplex-s.*personaplex-s2"):
         read(tmp_path)
 
 
