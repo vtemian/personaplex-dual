@@ -39,3 +39,21 @@ probe:
 .PHONY: render
 render:
 	sh scripts/submit.sh render-$(NAME) render --name render-$(NAME) $(ARGS)
+
+.PHONY: train measure bar
+BASE ?= personaplex
+SLICE ?= 1
+RENDER ?= render-1
+EPOCHS ?= 8
+
+train:
+	sh scripts/submit.sh $(NAME) train --name $(NAME) --base $(BASE) --slice $(SLICE) --render $(RENDER) --epochs $(EPOCHS) $(ARGS)
+
+measure:
+	sh scripts/submit.sh measure-$(NAME) measure --name measure-$(NAME) --base $(BASE) --render $(RENDER) $(if $(RUN),--run $(RUN),) $(ARGS)
+
+bar:
+	mkdir -p runs
+	scp -r '$(BOX):/srv/spark/runs/measure-*/measure' runs/
+	@ls runs/measure/*/summary.json >/dev/null 2>&1 || { echo "no runs/measure*/summary.json after scp: run make measure first"; exit 1; }
+	PYTHONPATH=src uv run python -m dual.report runs/ > docs/results/bar.md && cat docs/results/bar.md
