@@ -63,23 +63,38 @@ def table(summaries: Sequence[dict[str, Any]], key: str = "content") -> str:
 
 def _ratio(s: dict[str, Any]) -> float:
     b = s["content"]
-    return float(b["median_gap"]) / float(b["median_floor"])
+    floor = float(b["median_floor"])
+    return float(b["median_gap"]) / floor if floor > 0 else float("inf")
 
 
 def best(summaries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per (run, base), the epoch with the smallest median gap / median floor."""
+    """Per (run, base), the epoch to report: one that passes the bar (median and p90)
+    over one that does not, then the smallest median gap / median floor."""
+
+    def key(s: dict[str, Any]) -> tuple[bool, float]:
+        return (not passes(s["content"]), _ratio(s))
+
     picked: dict[tuple[str, str], dict[str, Any]] = {}
     for s in summaries:
         k = (s["run"] or "", s["base"])
-        if k not in picked or _ratio(s) < _ratio(picked[k]):
+        if k not in picked or key(s) < key(picked[k]):
             picked[k] = s
     return [picked[k] for k in sorted(picked)]
 
 
 def read(root: pathlib.Path) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    seen: dict[tuple[str, str, int], pathlib.Path] = {}
     for path in sorted(root.glob("measure/*/summary.json")):
-        out.extend(json.loads(path.read_text()))
+        for s in json.loads(path.read_text()):
+            k = (s["run"] or "", s["base"], int(s["epoch"]))
+            if k in seen:
+                raise ValueError(
+                    f"two summaries for run={k[0] or 'bare'!r} base={k[1]!r} "
+                    f"epoch={k[2]}: {seen[k]} and {path}"
+                )
+            seen[k] = path
+            out.append(s)
     out.sort(key=lambda s: (s["base"], s["run"] or "", s["epoch"]))
     return out
 

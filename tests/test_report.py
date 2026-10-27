@@ -74,3 +74,37 @@ def test_main_reads_every_summary_under_runs(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "content frames" in out and "all frames" in out and "best epoch" in out
     assert out.count("| s | personaplex | 1/8 | 2 |") == 3
+
+
+def test_read_refuses_two_summaries_for_one_run_base_epoch(tmp_path):
+    import pytest
+
+    from dual.report import read
+
+    for name in ("personaplex-s", "personaplex-s2"):
+        d = tmp_path / "measure" / name
+        d.mkdir(parents=True)
+        (d / "summary.json").write_text(json.dumps([E1]))
+    with pytest.raises(ValueError, match="personaplex-s.*personaplex-s2"):
+        read(tmp_path)
+
+
+def test_best_prefers_a_passing_epoch_over_a_smaller_ratio():
+    low_ratio_fails_p90 = summary("s", 1, 0.1, 0.5, 2.0, 1.0)
+    passes = summary("s", 2, 0.4, 0.5, 0.9, 1.0)
+    picked = best([low_ratio_fails_p90, passes])
+    assert [s["epoch"] for s in picked] == [2]
+
+
+def test_best_falls_back_to_smallest_ratio_when_none_pass():
+    a = summary("s", 1, 1.0, 0.5, 2.0, 1.0)
+    b = summary("s", 2, 0.8, 0.5, 2.0, 1.0)
+    assert best([a, b])[0]["epoch"] == 2
+
+
+def test_best_survives_a_zero_floor():
+    zero = summary("s", 1, 0.0, 0.0, 0.0, 0.0)
+    other = summary("s", 2, 1.0, 0.5, 2.0, 1.0)
+    assert best([zero, other])[0]["epoch"] == 1  # 0 <= 0 passes; other does not
+    bad = summary("s", 1, 0.3, 0.0, 2.0, 1.0)
+    assert best([bad, other])[0]["epoch"] == 2  # inf vs 2.0
