@@ -44,10 +44,24 @@ fi
 [ "$mode" != noid ] || exit 0
 for a in "$@"; do
   case "$a" in
-    train) echo job-train ;;
-    measure) echo job-measure ;;
+    train|measure)
+      if [ "$mode" = noisy ]; then
+        echo "building image..."; echo "job-stale-one earlier"; echo "note: job-nope"
+        echo "job-$a queued at 12:00 (position 1)"; echo "job-bad! junk"; echo "done"
+      else
+        echo "job-$a"
+      fi ;;
   esac
 done
+""",
+    "sleep": """echo "sleep $*" >> "$FAKE/log"
+""",
+    "date": """case "$1" in
+  +%s) n=$(cat "$FAKE/dn" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE/dn"
+       [ -z "${DATE_JUMP:-}" ] ||
+         { echo $(( $(/bin/date +%s) + n * DATE_JUMP )); exit 0; } ;;
+esac
+exec /bin/date "$@"
 """,
 }
 
@@ -170,10 +184,12 @@ def test_low_memory_waits_then_submits(box):
 def test_unreadable_memory_or_ssh_failure_retries(box, bad):
     r, log = box(ssh=[bad, bad, "100"], FROM="ladder-moshiko-1")
     assert r.returncode == 0, r.stderr
-    assert "ladder-moshiko-1" in r.stdout and "vlad@box" in r.stdout
     assert "could not read MemAvailable" in r.stdout
+    first_make = next(i for i, x in enumerate(log) if x.startswith("make"))
+    assert len([x for x in log[:first_make] if x.startswith("ssh")]) == 3
     ssh = next(x for x in log if x.startswith("ssh"))
     assert "BatchMode=yes" in ssh and "ConnectTimeout=15" in ssh
+    assert "ServerAliveInterval=15" in ssh and "ServerAliveCountMax=4" in ssh
     assert len(submits(log)) == 2
 
 
@@ -305,3 +321,57 @@ def test_from_skips_earlier_runs(box):
 def test_image_is_passed_quoted_to_make(box):
     _, log = box(IMAGE="img with space:tag", FROM="ladder-moshiko-1")
     assert any("IMAGE=img with space:tag" in x for x in submits(log))
+
+
+def test_the_lookup_window_is_pinned_at_the_first_attempt(box):
+    # each date +%s call jumps 1000s: a per-attempt t0 would miss the attempt-1 job
+    r, log = box(
+        make=["fail", "fail"],
+        queue=["0 []", queue_json("ladder-moshiko-1", "job-landed")],
+        FROM="ladder-moshiko-1",
+        DATE_JUMP="1000",
+    )
+    assert r.returncode == 0, r.stderr
+    assert "adopted ladder-moshiko-1 job-landed" in r.stdout
+    assert len([x for x in submits(log) if "train" in x]) == 2
+
+
+def test_a_hopeless_submit_gives_up_after_twenty_empty_lookups(box):
+    r, log = box(make=["fail"] * 30, FROM="ladder-moshiko-1")
+    assert r.returncode == 1
+    assert len([x for x in submits(log) if "train" in x]) == 20
+    assert "ladder-moshiko-1" in r.stdout and "20" in r.stdout
+
+
+def test_job_id_is_the_first_token_of_the_last_strict_job_line(box):
+    r, log = box(make=["noisy", "noisy"], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert "submitted ladder-moshiko-1 job-train" in r.stdout
+    assert "sparks wait --timeout 600 job-train" in log
+    assert "sparks wait --timeout 600 job-measure" in log
+
+
+def test_wait_sleeps_when_wait_fails_fast_on_a_live_job(box):
+    r, log = box(
+        wait=["1", "0", "0"],
+        status=[state("running")],
+        FROM="ladder-moshiko-1",
+        LADDER_SLEEP="7",
+    )
+    assert r.returncode == 0, r.stderr
+    waits = [i for i, x in enumerate(log) if x.startswith("sparks wait")]
+    assert "sleep 7" in log[waits[0] : waits[1]]
+
+
+def test_queue_entries_missing_fields_are_skipped(box):
+    junk = [
+        {"job_id": "job-x", "submitted_unix": int(time.time())},
+        {"job_id": "job-y", "name": "ladder-moshiko-1", "submitted_unix": None},
+        {"job_id": "job-z", "name": "ladder-moshiko-1"},
+    ]
+    good = json.loads(queue_json("ladder-moshiko-1", "job-good")[2:])
+    r, _log = box(
+        make=["fail"], queue=["0 " + json.dumps(junk + good)], FROM="ladder-moshiko-1"
+    )
+    assert r.returncode == 0, r.stderr
+    assert "adopted ladder-moshiko-1 job-good" in r.stdout

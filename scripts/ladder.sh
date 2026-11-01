@@ -25,7 +25,7 @@ say() { echo "$(date '+%m-%d %H:%M') $*"; }
 # Block until the box has MIN_AVAIL_GIB available (used before every submit); never exits.
 gate() {  # gate <run name>
   while :; do
-    gib=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOST" "awk '/MemAvailable/ {print int(\$2 / 1048576)}' /proc/meminfo") || gib=""
+    gib=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$HOST" "awk '/MemAvailable/ {print int(\$2 / 1048576)}' /proc/meminfo") || gib=""
     case "$gib" in
       ''|*[!0-9]*) say "$1: could not read MemAvailable from $HOST over ssh; retrying in ${SLEEP}s" ;;
       *)
@@ -48,7 +48,9 @@ import json, sys
 jobs = json.load(sys.stdin)
 if not isinstance(jobs, list):
     raise SystemExit(1)
-hit = [j for j in jobs if j["name"] == sys.argv[1] and j["submitted_unix"] >= int(sys.argv[2])]
+hit = [j for j in jobs if isinstance(j, dict) and j.get("name") == sys.argv[1]
+       and isinstance(j.get("submitted_unix"), (int, float)) and j.get("job_id")
+       and j["submitted_unix"] >= int(sys.argv[2])]
 if hit:
     print(max(hit, key=lambda j: j["submitted_unix"])["job_id"])
 ' "$1" "$2" 2>/dev/null
@@ -58,10 +60,12 @@ if hit:
 # (sparks can time out copying --data after accepting it), so look it up before resubmitting.
 submit() {  # submit <job name> <make target and args...>
   jname=$1; shift
+  t0=$(date +%s)   # pinned: a job that landed on attempt 1 must stay findable on later lookups
+  hopeless=0       # consecutive attempts where make failed and a good lookup found nothing
   while :; do
-    t0=$(date +%s)
     rc=0; out=$(IMAGE="$IMAGE" make -s "$@") || rc=$?
-    JOB=$(printf '%s\n' "$out" | grep '^job-' | tail -n 1) || JOB=""
+    # the first token of the last line whose first token is strictly job-<id>
+    JOB=$(printf '%s\n' "$out" | awk '$1 ~ /^job-[A-Za-z0-9_-]+$/ {id = $1} END {if (id != "") print id}') || JOB=""
     if [ "$rc" -eq 0 ] && [ -n "$JOB" ]; then say "submitted $jname $JOB"; return 0; fi
     say "$jname: make exited $rc without a usable job id; looking in the queue"
     while :; do
@@ -70,6 +74,13 @@ submit() {  # submit <job name> <make target and args...>
       sleep "$SLEEP"
     done
     if [ -n "$found" ]; then JOB=$found; say "adopted $jname $JOB from the queue"; return 0; fi
+    if [ "$rc" -ne 0 ]; then
+      hopeless=$((hopeless + 1))
+      if [ "$hopeless" -ge 20 ]; then
+        say "$jname: make failed $hopeless times in a row and the queue never had it; giving up (is vendor/ or data/ missing?)"
+        exit 1
+      fi
+    fi
     say "$jname: not in the queue; resubmitting in ${SLEEP}s"
     sleep "$SLEEP"
   done
@@ -83,7 +94,7 @@ wait_job() {
     case "$rc" in 0) return 0 ;; 75) continue ;; esac
     st=$(job_state "$1")
     case "$st" in
-      queued|building|running) ;;
+      queued|building|running) sleep "$SLEEP" ;;
       finished) return 0 ;;
       failed|cancelled|aborted) say "job $1 ended $st"; return 1 ;;
       *) say "job $1: state unreadable (sparks wait rc=$rc); retrying in ${SLEEP}s"
@@ -107,7 +118,8 @@ for base in personaplex moshiko; do
     wait_job "$JOB" || exit 1
     gate "$name (measure)"
     submit "measure-$name" measure NAME=$name BASE=$base RUN=$name RENDER=render-1
-    wait_job "$JOB" || exit 1
+    MJOB=$JOB
+    wait_job "$MJOB" || exit 1
   done
 done
 n=0
