@@ -1,7 +1,9 @@
 import json
 import os
+import re
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -20,13 +22,26 @@ case "$1" in
   wait) line=$(pop "$FAKE/wait") || line="0"; exit "$line" ;;
   status) line=$(pop "$FAKE/status") || line="1 "
           rc=${line%% *}; out=${line#* }; [ -z "$out" ] || echo "$out"; exit "$rc" ;;
+  queue) line=$(pop "$FAKE/queue") || line="0 []"
+         rc=${line%% *}; out=${line#* }; [ -z "$out" ] || echo "$out"; exit "$rc" ;;
 esac
 """,
-    "ssh": """echo "ssh $*" >> "$FAKE/log"
+    "ssh": POP
+    + """echo "ssh $*" >> "$FAKE/log"
 [ ! -e "$FAKE/ssh_fail" ] || exit 255
+if line=$(pop "$FAKE/ssh"); then
+  [ "$line" != fail ] || exit 255
+  echo "$line"; exit 0
+fi
 cat "$FAKE/mem" 2>/dev/null || echo 100
 """,
-    "make": """echo "make IMAGE=$IMAGE $*" >> "$FAKE/log"
+    "make": POP
+    + """echo "make IMAGE=$IMAGE $*" >> "$FAKE/log"
+mode=$(pop "$FAKE/make") || mode=ok
+if [ "$mode" = fail ]; then
+  echo "sparks: could not copy --data: Operation timed out" >&2; exit 1
+fi
+[ "$mode" != noid ] || exit 0
 for a in "$@"; do
   case "$a" in
     train) echo job-train ;;
@@ -52,7 +67,12 @@ def box(tmp_path):
         p.write_text("#!/bin/sh\n" + body)
         p.chmod(p.stat().st_mode | stat.S_IXUSR)
 
-    def run(wait=(), status=(), mem=None, ssh_fail=False, **env):
+    def run(
+        wait=(), status=(), mem=None, ssh_fail=False, ssh=(), make=(), queue=(), **env
+    ):
+        (fake / "ssh").write_text("".join(f"{x}\n" for x in ssh))
+        (fake / "make").write_text("".join(f"{x}\n" for x in make))
+        (fake / "queue").write_text("".join(f"{x}\n" for x in queue))
         (fake / "wait").write_text("".join(f"{x}\n" for x in wait))
         (fake / "status").write_text("".join(f"{x}\n" for x in status))
         if mem is not None:
@@ -118,14 +138,6 @@ def test_failed_job_stops_the_ladder_before_measure(box):
     assert "measure" not in " ".join(submits(log))
 
 
-def test_unreadable_state_gives_up_naming_the_job(box):
-    r, log = box(wait=["1"] * 40, status=["255 "] * 40, FROM="ladder-moshiko-1")
-    assert r.returncode == 1
-    assert "job-train" in r.stdout + r.stderr
-    assert len([x for x in log if x.startswith("sparks status")]) <= 16
-    assert len(submits(log)) == 1
-
-
 def test_bad_from_exits_2_and_submits_nothing(box):
     r, log = box(FROM="ladder-nope-3")
     assert r.returncode == 2
@@ -133,42 +145,152 @@ def test_bad_from_exits_2_and_submits_nothing(box):
     assert submits(log) == []
 
 
-def test_low_memory_exits_before_any_submit(box):
-    r, log = box(mem=10)
-    assert r.returncode == 1
-    assert "10 GiB" in r.stdout + r.stderr
-    assert submits(log) == []
-
-
-def test_low_memory_gate_also_guards_the_measure_submit(box, tmp_path):
-    # memory is fine for the train, then the box fills up before the measure
-    ssh = tmp_path / "bin" / "ssh"
-    ssh.write_text(
-        '#!/bin/sh\necho "ssh $*" >> "$FAKE/log"\n'
-        'if [ -e "$FAKE/seen" ]; then echo 5; else touch "$FAKE/seen"; echo 100; fi\n'
+def test_low_memory_gate_also_guards_the_measure_submit(box):
+    # memory is fine for the train, then the box fills up before the measure, then frees
+    r, log = box(wait=["0"], ssh=["100", "5", "5", "100"], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert (
+        "ladder-moshiko-1 (measure): box has 5 GiB available, need 70; waiting"
+        in r.stdout
     )
-    r, log = box(wait=["0"], FROM="ladder-moshiko-1")
-    assert r.returncode == 1
-    assert len(submits(log)) == 1
-    assert "measure" not in " ".join(submits(log))
+    sub = submits(log)
+    assert len(sub) == 2 and "train" in sub[0] and "measure" in sub[1]
+    assert len([x for x in log if x.startswith("ssh")]) == 4
 
 
-@pytest.mark.parametrize("out", ["", "garbage"])
-def test_unreadable_memory_exits_1_naming_run_and_host(box, out):
-    r, log = box(mem=out)
-    assert r.returncode == 1
-    assert "ladder-personaplex-8" in r.stdout + r.stderr
-    assert "vlad@box" in r.stdout + r.stderr
-    assert submits(log) == []
+def test_low_memory_waits_then_submits(box):
+    r, log = box(ssh=["10", "20", "100"], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert "ladder-moshiko-1: box has 10 GiB available, need 70; waiting" in r.stdout
+    assert "box has 20 GiB available" in r.stdout
+    assert len(submits(log)) == 2
 
 
-def test_ssh_failure_exits_1_and_ssh_is_batchmode(box):
-    r, log = box(ssh_fail=True)
-    assert r.returncode == 1
-    assert "vlad@box" in r.stdout + r.stderr
+@pytest.mark.parametrize("bad", ["", "garbage", "fail"])
+def test_unreadable_memory_or_ssh_failure_retries(box, bad):
+    r, log = box(ssh=[bad, bad, "100"], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert "ladder-moshiko-1" in r.stdout and "vlad@box" in r.stdout
+    assert "could not read MemAvailable" in r.stdout
     ssh = next(x for x in log if x.startswith("ssh"))
     assert "BatchMode=yes" in ssh and "ConnectTimeout=15" in ssh
-    assert submits(log) == []
+    assert len(submits(log)) == 2
+
+
+def test_every_line_is_stamped_and_submit_is_announced(box):
+    r, _ = box(ssh=["10", "100"], FROM="ladder-moshiko-1")
+    lines = r.stdout.splitlines()
+    assert lines and all(re.match(r"\d\d-\d\d \d\d:\d\d \S", x) for x in lines), lines
+    assert any(x[12:] == "submitted ladder-moshiko-1 job-train" for x in lines)
+    assert any(
+        x[12:] == "submitted measure-ladder-moshiko-1 job-measure" for x in lines
+    )
+
+
+def queue_json(name, job_id, age=0, state="queued"):
+    return "0 " + json.dumps(
+        [
+            {
+                "job_id": "job-old",
+                "name": name,
+                "state": "finished",
+                "submitted_unix": 1,
+            },
+            {
+                "job_id": job_id,
+                "name": name,
+                "state": state,
+                "submitted_unix": int(time.time()) - age,
+            },
+        ]
+    )
+
+
+def test_failed_submit_adopts_the_job_already_in_the_queue(box):
+    r, log = box(
+        make=["fail"],
+        queue=[queue_json("ladder-moshiko-1", "job-adopted")],
+        FROM="ladder-moshiko-1",
+    )
+    assert r.returncode == 0, r.stderr
+    assert "adopt" in r.stdout and "job-adopted" in r.stdout
+    assert len([x for x in submits(log) if "train" in x]) == 1
+    assert "sparks wait --timeout 600 job-adopted" in log
+
+
+def test_failed_submit_with_nothing_queued_resubmits(box):
+    r, log = box(make=["fail", "noid"], queue=["0 []", "0 []"], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert len([x for x in submits(log) if "train" in x]) == 3
+    assert "sparks wait --timeout 600 job-train" in log
+
+
+def test_old_or_other_named_jobs_are_not_adopted(box):
+    stale = queue_json("ladder-moshiko-1", "job-stale", age=1000)
+    other = queue_json("ladder-moshiko-2", "job-other")
+    r, log = box(make=["fail"], queue=[stale, other], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert "job-stale" not in " ".join(log) and "job-other" not in " ".join(log)
+    assert len([x for x in submits(log) if "train" in x]) == 2
+
+
+def test_a_measure_job_is_looked_up_by_its_own_name(box):
+    r, log = box(
+        wait=["0", "0"],
+        make=["ok", "fail"],
+        queue=[queue_json("measure-ladder-moshiko-1", "job-m")],
+        FROM="ladder-moshiko-1",
+    )
+    assert r.returncode == 0, r.stderr
+    assert "sparks wait --timeout 600 job-m" in log
+    assert len(submits(log)) == 2
+
+
+@pytest.mark.parametrize("bad", ["255 ", "0 not json", "0 {}"])
+def test_unreadable_queue_never_resubmits(box, bad):
+    r, log = box(make=["fail"], queue=[bad, bad, "0 []"], FROM="ladder-moshiko-1")
+    assert r.returncode == 0, r.stderr
+    assert len([x for x in log if x.startswith("sparks queue --all --json")]) == 3
+    # the second train submit comes only after the lookup that succeeded
+    trains = [i for i, x in enumerate(log) if x.startswith("make") and "train" in x]
+    between = log[trains[0] : trains[1]]
+    assert len([x for x in between if x.startswith("sparks queue")]) == 3
+    assert len([x for x in submits(log) if "train" in x]) == 2
+
+
+def test_unreadable_state_keeps_waiting_with_stamped_lines(box):
+    r, log = box(
+        wait=["1"] * 20 + ["0"],
+        status=["255 "] * 20 + [state("finished")],
+        FROM="ladder-moshiko-1",
+    )
+    assert r.returncode == 0, r.stderr
+    assert len([x for x in r.stdout.splitlines() if "unreadable" in x]) >= 20
+    assert len(submits(log)) == 2
+
+
+def test_bar_is_retried_ten_times_then_fails(box, tmp_path):
+    make = tmp_path / "bin" / "make"
+    make.write_text(
+        '#!/bin/sh\necho "make $*" >> "$FAKE/log"\n'
+        'case "$*" in *bar*) exit 1 ;; *train*) echo job-train ;;'
+        " *measure*) echo job-measure ;; esac\n"
+    )
+    r, log = box(FROM="ladder-moshiko-1")
+    assert r.returncode == 1
+    assert len([x for x in log if " bar " in x]) == 10
+
+
+def test_bar_succeeds_after_a_retry(box, tmp_path):
+    make = tmp_path / "bin" / "make"
+    make.write_text(
+        '#!/bin/sh\necho "make $*" >> "$FAKE/log"\n'
+        'case "$*" in *bar*) [ -e "$FAKE/b" ] || { touch "$FAKE/b"; exit 1; } ;;'
+        " *train*) echo job-train ;; *measure*) echo job-measure ;; esac\n"
+    )
+    r, log = box(FROM="ladder-moshiko-1")
+    assert r.returncode == 0
+    assert len([x for x in log if " bar " in x]) == 2
 
 
 def test_from_skips_earlier_runs(box):
