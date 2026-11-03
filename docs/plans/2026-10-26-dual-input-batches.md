@@ -114,8 +114,9 @@ text and audio logits aligned to the input) and chalkboard's `attach_trunk_lora`
 | B3 render job | sonnet | `src/dual/jobs/render.py`, Makefile target `render`; runs it | counts: 351 train rows, 13 holdout records x 5 turns x 4 renderings |
 | B4 train + measure | opus | `src/dual/jobs/{train,measure}.py`, `src/dual/report.py`, `tests/test_report.py`, Makefile targets `train measure bar`; one 1-epoch smoke run; the bare controls | the bare-model bar table prints |
 | B5 ladder | sonnet | `scripts/ladder.sh`, `docs/results/ladder-1.md` | eight runs measured; `GATE` with the table |
+| B6 ladder 2 | sonnet | `src/dual/{model,noise}.py`, `src/dual/jobs/{train,measure}.py`, `scripts/ladder.sh`, `Makefile` (`noise`), `tests/test_{train,model_checks,measure,ladder_sh,noise}.py`, `docs/results/ladder-2.md` | five 3-epoch runs measured; `make noise` verdict; `GATE` |
 
-B1 and B2 run in parallel after B0. B3 needs B1 and B2. B4 needs B3. B5 needs B4.
+B1 and B2 run in parallel after B0. B3 needs B1 and B2. B4 needs B3. B5 needs B4. B6 needs B5 and Vlad's ladder-1 gate answer.
 
 ---
 
@@ -1779,3 +1780,232 @@ typing while moshi speaks).`
   from the submitting shell; the first `run.step` reports no rate.
 - Box paths: shared dir `/srv/spark` (cwd in a job); `runs/<name>/...`; `models/`.
 - chalkboard's dv3a tape run: `job-20261023-172331-vlad-dv3a-tape`, image `deriv:f70c0143`.
+
+---
+
+## Batch B6: ladder 2, the recipe sweep (model: sonnet for code, the orchestrator runs it)
+
+Vlad's answer at the ladder-1 gate (2026-11-03): **"(b) change rank / LR / base, rerun."**
+Ladder 1 left two constraints: run **3 epochs or fewer**, and **repeat one rung with a
+second seed** so noise is measured. B6 is that sweep: one rung, one base, five new runs,
+about a day of the single queue.
+
+### B6.0 What the sweep asks, and what it can and cannot tell
+
+The question: **does any rank or LR change move the median gap/floor ratio (content frames)
+of PersonaPlex on all 117 dialogues away from ladder 1's ~3?**
+
+- **Base: PersonaPlex only.** The two bases tracked each other within noise at every rung of
+  ladder 1, so a moshiko run is the least informative use of four hours.
+- **Rung: 1/1 (117 dialogues), 3 epochs.** Held-out text loss bottomed at epoch 2 in every
+  117-dialogue run, and the lowest gap was at epoch 1.
+- **Seed 0 is already measured.** Ladder 1's `ladder-personaplex-1` ran this recipe: rank 16,
+  scaling 2.0, constant LR 2e-5 with no schedule, seed 0. Its epochs 1 to 3 are a 3-epoch run
+  of the same recipe, step for step, and they are measured. So the noise repeat costs one run,
+  seed 1, not two.
+- **Holdout noise is already large.** A stem-level bootstrap (resampling the 13 holdout
+  dialogues with their 5 turns, 2,000 draws) on ladder 1's per-turn lines gives:
+  - for one run's median ratio, a 95% interval of about ±0.45 (`ladder-personaplex-1`
+    epoch 1: 3.04, [2.57, 3.44]);
+  - for the paired difference of two runs on the same stems, about ±0.55
+    (`ladder-personaplex-1` minus `ladder-personaplex-2` at epoch 1: -0.17, [-0.71, 0.38]).
+
+  So with 65 turns the sweep can detect a move of about 0.5 or more, and nothing smaller.
+  That is enough for the decision: the bar needs the ratio at 1, so a lever that is worth a
+  ladder 3 has to move it by much more than 0.5. A move under 0.5 is reported as "not moved",
+  never as "small".
+- **Rank uses matched alpha.** chalkboard's `attach_trunk_lora` takes the multiplier itself,
+  2.0 at rank 16, which is alpha 32 at the usual alpha/r. Rank 4 and rank 64 keep alpha at 32
+  (scaling 8.0 and 0.5), the parametrisation under which "LoRA Without Regret" finds the best
+  LR roughly independent of rank. So the rank runs change capacity, not the early step size.
+  Holding the multiplier at 2.0 instead would make rank 64 also a roughly 4x larger effective
+  rate, and the result could not be read as capacity. (moshi's own note is to hold 2.0 and
+  sweep the rate; the LR runs below cover the rate.)
+
+### B6.0.1 The runs (one at a time, in this order)
+
+| run | rank | scaling | LR | seed | what it asks |
+|---|---|---|---|---|---|
+| `ladder-personaplex-1` (ladder 1, epochs 1-3) | 16 | 2.0 | 2e-5 | 0 | the reference, already measured |
+| `ladder2-pp-s1` | 16 | 2.0 | 2e-5 | 1 | noise: the same recipe, another seed |
+| `ladder2-pp-lr5e-6` | 16 | 2.0 | 5e-6 | 0 | a slower rate: does a less-overfit start do better than epoch 1? |
+| `ladder2-pp-lr1e-4` | 16 | 2.0 | 1e-4 | 0 | a faster rate: is the ratio a function of progress only? |
+| `ladder2-pp-r64` | 64 | 0.5 | 2e-5 | 0 | capacity up 4x at matched alpha |
+| `ladder2-pp-r4` | 4 | 8.0 | 2e-5 | 0 | capacity down 4x at matched alpha |
+
+Every run: `BASE=personaplex SLICE=1 RENDER=render-1 EPOCHS=3`, compile engine, measured at
+epochs 1, 2 and 3. The fifth variant is rank 4 rather than moshiko or regularisation. The
+bases were already equal, and AdamW's 0.01 weight decay moves a LoRA by lr x 0.01 per step,
+which is nothing at 2e-5. Rank 4 with rank 64 gives a three-point rank axis (4, 16, 64)
+through the reference, beside the three-point LR axis (5e-6, 2e-5, 1e-4).
+
+Cost: a PersonaPlex 117-dialogue train is ~54 min per epoch (3,220 s), so ~2.7 h for 3
+epochs, plus ~25 min per measured epoch, so ~1.3 h. That is ~4 h a run and ~20 h for the five.
+
+### B6.0.2 What counts as "the recipe moved the ratio"
+
+Per run, read on content frames over epochs 1 to 3 only:
+- **R** is the best median gap/floor of its three epochs, `report.best`'s pick. **R_gap** is
+  the ratio at its lowest-median-gap epoch. Both are reported; R decides.
+- **Seed noise:** `d = |R(ladder-personaplex-1) - R(ladder2-pp-s1)|`. The reference
+  **R0** is the mean of the two seeds.
+- **Threshold:** `T = max(2 d, 0.5)`. The 0.5 is the holdout's own paired noise. It keeps a
+  seed pair that agrees by chance from making the threshold tiny.
+
+A variant **moved the ratio** only if both hold:
+1. `|R - R0| >= T`, and
+2. the paired stem-bootstrap 95% interval (2,000 draws, seed 0, the same stems on both sides,
+   each run at its own R epoch) of R minus R(seed 0) and of R minus R(seed 1) both exclude 0,
+   with the same sign.
+
+It moved it **down** (better) or **up**. Anything else is **not moved**. A p90 ratio that
+contradicts the median verdict is reported beside it, but it does not change the verdict.
+
+How the gate reads the answer:
+- **No variant moved down:** rank and LR are not the lever at this corpus size. The gate
+  goes back to Vlad as (a) grow the corpus, (c) the engine, or a new recipe axis outside
+  rank/LR (for example a consistency term on the typed rendering's answer).
+- **One or more moved down:** ladder 3 reruns the data rungs at the best variant's recipe.
+
+### Task B6.1: `--rank`, `--scaling`, `--lr` on the train job; measure attaches the checkpoint's own rank (TDD)
+
+Files: `src/dual/model.py`, `src/dual/jobs/train.py`, `src/dual/jobs/measure.py`,
+`tests/test_train.py`, `tests/test_model_checks.py`, `tests/test_measure.py`.
+
+- `model.py`:
+  - `ADAPTER_PARAMS_PER_RANK = 2_129_920`, which is 66,560 a unit of rank per layer x 32
+    layers, and `adapter_params(rank) -> int`. Rank 16 must stay 34,078,720.
+  - `attach_lora(base, rank=RANK, scaling=SCALING)` records the rank and scaling on the
+    `Base` (new optional fields), and checks trainable == `adapter_params(rank)`.
+  - `adapter_meta(base)` reads them from the `Base`, and raises if no adapter is attached.
+  - New pure helper `adapter_setup(meta) -> (rank, scaling)` that refuses a meta missing
+    either key.
+  - Defaults are unchanged, so every ladder-1 checkpoint (meta rank 16, scaling 2.0, params
+    34,078,720) still loads.
+- `train.py`:
+  - `--lr` (default `LR`), `--rank` (default `RANK`), `--scaling` (default `SCALING`).
+  - The optimiser and `run.step(learning_rate=...)` use `args.lr`. The checkpoint's `run`
+    dict gains `rank`, `scaling` and `lr`, and the start line prints the recipe.
+  - `--resume` refuses a checkpoint whose `run.lr` differs from `--lr`. A missing key means
+    the old default 2e-5. Rank and scaling are already refused by `check_adapter_meta`.
+- `measure.py`: read the first checkpoint's blob, then `attach_lora(base, *adapter_setup(blob["meta"]))`.
+  `load_blob_adapters` still checks every checkpoint against that setup. **Nothing about what
+  is measured changes**: no change to rows, KL, windows, summaries or output paths.
+- Tests (laptop, CPU, no moshi):
+  - argparse defaults and flags;
+  - `adapter_params(4/16/64)`;
+  - `adapter_setup` on a ladder-1 meta and on a broken one;
+  - `adapter_meta` on a fake `Base` with rank 64;
+  - `check_adapter_meta` refusing a rank mismatch;
+  - the resume LR check as a pure helper `check_resume_lr(run_meta, lr)`.
+
+`make check`, commit `feat: the train job takes rank, scaling and LR; measure attaches the checkpoint's setup`.
+
+### Task B6.2: `scripts/ladder.sh` runs ladder 2 (TDD on `tests/test_ladder_sh.py`)
+
+Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`.
+
+- The run list moves out of the nested loops into a `LADDER` selector. `LADDER=1`, the
+  default, is ladder 1's eight runs at `EPOCHS=8`, exactly as before. `LADDER=2` is B6.0.1's
+  five runs, each `BASE=personaplex SLICE=1 RENDER=render-1 EPOCHS=3` with its own
+  `ARGS='--seed 1'`, `'--lr 5e-6'`, `'--lr 1e-4'`, `'--rank 64 --scaling 0.5'` or
+  `'--rank 4 --scaling 8.0'`.
+- Everything else stays as it is: one run at a time, the memory gate, the ssh-retrying
+  submit, wait and lookup, and `make bar` at the end.
+- `FROM` is validated against the selected list.
+- Measure gets no ARGS: it reads the setup from the checkpoint.
+- **Trap:** the list must not be fed to a `while read` loop on stdin. `ssh` in `gate` reads
+  stdin and would eat the remaining runs. Iterate over words, for example
+  `name,epochs,arg,arg` split with `IFS=,` inside a function, or give ssh `-n`.
+- Tests with the existing fakes:
+  - `LADDER=2` submits the five trains in order, each with its ARGS and `EPOCHS=3`, and each
+    followed by its measure;
+  - `LADDER=2 FROM=ladder2-pp-r64` starts there;
+  - an unknown `FROM` exits 2;
+  - the ladder-1 tests still pass untouched.
+
+`make check`, commit `feat: the ladder script runs ladder 2's recipe sweep`.
+
+### Task B6.3: `src/dual/noise.py` and `make noise`, the seed and bootstrap verdict (TDD, pure)
+
+Files: `src/dual/noise.py`, `tests/test_noise.py`, `Makefile` (target `noise`).
+
+- **Input:** the per-turn lines in `runs/measure/<label>/epoch-NN.jsonl`, the files `make bar`
+  copies. Each line holds `stem`, `turn`, and `gap`/`floor` as `{"content", "all_frames", ...}`.
+- **Imports:** numpy and the standard library only, no torch. The median and p90 must equal
+  `kl.bar`'s (`np.median`, `np.percentile(..., 90)`).
+- **Functions:**
+  - `ratio(lines)`, the median content gap over the median content floor, and `p90_ratio(lines)`;
+  - `pick(by_epoch, max_epoch=3) -> (epoch, R)`, `report.best`'s rule (a passing epoch first,
+    then the smallest ratio) restricted to epochs `1..max_epoch`;
+  - `lowest_gap(by_epoch, max_epoch=3) -> (epoch, ratio)`;
+  - `paired_ci(a, b, draws=2000, seed=0) -> (delta, lo, hi)`. It resamples stems with
+    replacement and uses the same draw on both sides. A stem missing from either side raises.
+  - `verdict(r, r_s0, r_s1, ci_s0, ci_s1, threshold) -> "down" | "up" | "not moved"`, per
+    B6.0.2.
+- **CLI:** `python -m dual.noise ROOT --seeds LABEL LABEL --variants LABEL...` prints a
+  markdown table and the noise line. The table columns are run, R (epoch), p90 ratio there,
+  R_gap (epoch), R - R0, the 95% intervals against each seed, and the verdict. The noise line
+  gives d, R0 and T.
+- **Makefile:**
+  ```make
+  noise:
+  	PYTHONPATH=src uv run python -m dual.noise runs/ --seeds personaplex-ladder-personaplex-1 personaplex-ladder2-pp-s1 --variants personaplex-ladder2-pp-lr5e-6 personaplex-ladder2-pp-lr1e-4 personaplex-ladder2-pp-r64 personaplex-ladder2-pp-r4
+  ```
+- **Tests:** hand-built lines.
+  - A ratio and p90 checked against numpy.
+  - `pick` ignores epoch 4 or later.
+  - `paired_ci` of a run against itself is (0, 0, 0).
+  - A shifted run gives an interval that excludes 0.
+  - `verdict` covers all three outcomes, including |Δ| >= T with an interval that includes 0,
+    which is "not moved".
+  - Plus one test on ladder 1's real numbers, if a fixture is small enough to commit
+    (a handful of lines).
+
+`make check`, commit `feat: the noise verdict, seeds and a paired stem bootstrap`.
+
+B6.1, B6.2 and B6.3 touch disjoint files and run in parallel; one sonnet review on their
+merged diff, then an opus review before main.
+
+### Task B6.4: run it (the orchestrator)
+
+1. Build once from the merged B6 head and push to the registry the box can reach. Off the
+   LAN, use the B1 workaround:
+   ```sh
+   SHA=$(git rev-parse --short HEAD)
+   rm -rf docker/src docker/vendor && cp -RL src docker/src && cp -RL vendor docker/vendor
+   DOCKER_BUILDKIT=0 docker build -t 100.114.56.75:5000/vlad/ladder2:$SHA docker
+   docker push 100.114.56.75:5000/vlad/ladder2:$SHA
+   ```
+   Then confirm the new flags reach the job: `make train NAME=ladder2-smoke SLICE=8 EPOCHS=1
+   ARGS='--rank 4 --scaling 8.0'` with `IMAGE=spark.local:5000/vlad/ladder2:$SHA`. Read
+   `unmoved: []`, the recipe line and the param count (8,519,680), then `sparks cancel` it
+   after epoch 1's first steps. This is optional when the B6.1 tests cover the parse.
+2. Stop drama3 (Vlad-authorised; never remove or edit it):
+   `ssh vlad@<box> 'cd ~/drama3 && docker compose stop'`. Then `free -g`, and expect about
+   110 GiB available.
+3. Launch detached from the B6 worktree:
+   ```sh
+   LADDER=2 IMAGE=spark.local:5000/vlad/ladder2:$SHA SPARKS_HOST=vlad@<box> \
+     nohup caffeinate -i sh scripts/ladder.sh > $SCRATCH/ladder2.log 2>&1 &
+   ```
+   Poll the log and `sparks queue`, and check `free -g` every ~10 min with bounded ssh
+   (`-o ConnectTimeout=15`). After a reboot, re-stop drama3, resubmit the hung train with
+   `ARGS='<its args> --resume'`, wait for it, measure it by hand, then relaunch with
+   `FROM=<next run>`. If ssh is dead for more than 15 min, stop with `BLOCKED: power-cycle
+   the box` and name the running job.
+4. `make bar BOX=vlad@<box>`, which regenerates `docs/results/bar.md` with the ladder-2 rows,
+   then `make noise`.
+
+### Task B6.5: `docs/results/ladder-2.md`
+
+Contents, in ladder-1.md's style:
+- the runs and the image;
+- the content-frame table per run and epoch (from `bar.md`);
+- held-out text loss per epoch (from the train logs);
+- `make noise`'s table and noise line;
+- the verdict per variant;
+- the answer, in the terms of B6.0.2.
+
+Commit `docs: ladder 2, rank and LR at 117 dialogues, three epochs, two seeds`, merge
+`--no-ff`, then finish with `GATE` (B6.0.2's two branches).
