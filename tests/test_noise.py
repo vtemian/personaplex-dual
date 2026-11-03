@@ -6,7 +6,7 @@ import pytest
 
 from dual.noise import (
     FLOOR_INFLATED,
-    floor_guard,
+    gap_guard,
     lowest_gap,
     main,
     p90_ratio,
@@ -216,25 +216,27 @@ def test_report_decides_on_r_gap_not_on_the_best_of_three_r():
     assert c[1].endswith("(3)") and c[2].endswith("(1)")
 
 
-def test_floor_guard_labels_a_down_whose_floor_is_inflated():
-    assert floor_guard("down", 1.6, 1.0, 1.0) == FLOOR_INFLATED
-    assert floor_guard("down", 1.5, 1.0, 1.0) == "down"  # not above 1.5x
-    assert floor_guard("down", 1.0, 0.8, 1.2) == "down"
-    assert floor_guard("up", 5.0, 1.0, 1.0) == "up"
-    assert floor_guard("not moved", 5.0, 1.0, 1.0) == "not moved"
+def test_gap_guard_labels_a_down_whose_gap_did_not_fall():
+    assert gap_guard("down", 1.2, 1.0, 1.0) == FLOOR_INFLATED
+    assert gap_guard("down", 1.0, 1.0, 1.0) == "down"  # not above the seeds' mean
+    assert gap_guard("down", 0.9, 0.8, 1.2) == "down"
+    assert gap_guard("up", 5.0, 1.0, 1.0) == "up"
+    assert gap_guard("not moved", 5.0, 1.0, 1.0) == "not moved"
     assert FLOOR_INFLATED == "down, floor inflated"
 
 
-def test_report_flags_floor_inflation_and_has_the_new_columns():
-    seeds = {
-        k: {1: run([g] * 12, [0.5] * 12, per_stem=4)}
-        for k, g in (("s0", 1.0), ("s1", 1.1))
-    }
-    runs = {
-        **seeds,
-        "v": {1: run([0.4] * 12, [1.0] * 12, per_stem=4)},
-    }  # R 0.4, floor 2x
-    text = report(runs, ["s0", "s1"], ["v"])
+def _seed_variant_report(v_gap, v_floor):
+    seeds = {k: {1: run([1.0] * 12, [0.32] * 12, per_stem=4)} for k in ("s0", "s1")}
+    runs = {**seeds, "v": {1: run([v_gap] * 12, [v_floor] * 12, per_stem=4)}}
+    return report(runs, ["s0", "s1"], ["v"])
+
+
+def test_report_flags_a_ratio_that_fell_through_the_floor_alone():
+    # R0 3.125, T 0.5; the gap is the seeds' (+5%), the floor 1.3x: R 2.52, past T
+    text = _seed_variant_report(1.05, 0.416)
+    v = _cells(text, "v")
+    assert v[4] == "0.416"
+    assert v[-1] == "down, floor inflated"
     head = [c.strip() for c in text.splitlines()[2].strip("|").split("|")]
     assert head[:6] == [
         "run",
@@ -244,10 +246,29 @@ def test_report_flags_floor_inflation_and_has_the_new_columns():
         "median floor",
         "p90 ratio",
     ]
-    v = _cells(text, "v")
-    assert v[3] == "0.400" and v[4] == "1.000"
-    assert v[-1] == "down, floor inflated"
-    assert _cells(text, "s0")[4] == "0.500"
+
+
+def test_report_keeps_a_plain_down_when_the_gap_fell_and_the_floor_did_not():
+    v = _cells(_seed_variant_report(0.6, 0.32), "v")
+    assert v[3] == "0.600"
+    assert v[-1] == "down"
+
+
+def test_the_guard_uses_the_seeds_gaps_at_their_lowest_gap_epochs():
+    # each seed: e1 has the lowest gap (1.0, R_gap 3.33 / 3.125); e2 is the best-R pick
+    # (gap 1.5, R 2.5). The variant's gap 1.2 is above the seeds' e1 gaps (inflated) but
+    # below their e2 gaps (plain down, wrongly).
+    s0 = _epochs([(1.0, 0.30), (1.5, 0.6)])
+    s1 = _epochs([(1.0, 0.32), (1.5, 0.6)])
+    runs = {"s0": s0, "s1": s1, "v": _epochs([(1.2, 0.5)])}
+    assert pick(s0)[0] == 2 and lowest_gap(s0)[0] == 1
+    assert pick(s1)[0] == 2 and lowest_gap(s1)[0] == 1
+    text = report(runs, ["s0", "s1"], ["v"])
+    # the noise line is on R_gap (d 0.21, R0 3.23), not R (d 0, R0 2.50)
+    assert text.splitlines()[0] == (
+        "Seed noise (R_gap): d = 0.21, R0 = 3.23, T = max(2d, 0.5) = 0.50"
+    )
+    assert _cells(text, "v")[-1] == "down, floor inflated"
 
 
 def test_p90_ratio_is_read_at_the_decision_epoch():
