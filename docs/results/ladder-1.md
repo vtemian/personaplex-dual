@@ -1,24 +1,55 @@
 # Ladder 1: two bases over four rungs of 117 dialogues
 
-Eight LoRA runs (PersonaPlex and moshiko, slices 1/8, 1/4, 1/2, all of render-1's train rows,
-8 epochs each, compile engine, same seed), every epoch measured on the 13-dialogue holdout.
-Ran 2026-10-27 to 2026-11-03 on the box through sparks (image
-`spark.local:5000/vlad/smoke-eager-pp:8ed8980`, code identical to main `c624f13`).
-The full per-epoch tables (content frames and all frames) are in [bar.md](bar.md).
+Eight LoRA runs, every epoch measured on the 13-dialogue holdout:
+- **Runs:** PersonaPlex and moshiko, each on slices 1/8, 1/4, 1/2 and all of render-1's train
+  rows, 8 epochs, same seed.
+- **Engine:** compile, the default. No job passed `--eager`, and 413 s/epoch matches B4's
+  compiled smoke, not eager's 531 s.
+- **Box:** ran 2026-10-27 to 2026-11-03 through sparks.
+- **Image:** `spark.local:5000/vlad/smoke-eager-pp:8ed8980`. The tag is the name of the eager
+  smoke that built it; the code is identical to main `c624f13`.
+
+The full per-epoch tables (content frames and all frames) are in [bar.md](bar.md). Its
+`smoke-train-pp` row is B4's 1-epoch smoke: `make bar` copies every `measure-*` directory on
+the box.
 
 ## The answer
 
-**No run passes the bar on either base, but the curve is still falling at the full set.**
-The best median gap/floor drops with every doubling of data on both bases: PersonaPlex 2.92,
-2.87, 2.54, 2.09 and moshiko 2.95, 2.48, 2.45, 2.10 for 15, 30, 59 and 117 dialogues. The
-epoch-1 gap does the same: PersonaPlex 0.027, 0.023, 0.020, 0.018 and moshiko 0.029, 0.028,
-0.023, 0.021, against 0.046 and 0.059 for the bare bases. Read against the design's three
-outcomes:
-- **Still falling at the full set:** yes, on both bases.
-- **Flat above the floor from a quarter on:** no. The steepest drop is the last rung, 2.54 to
-  2.09 on PersonaPlex.
-- **Inside the floor before the full set:** no. The closest any run comes is a p90 ratio of
-  1.50 (PersonaPlex 1/2, epoch 4), and the median ratio never goes below 2.09.
+**No run passes the bar on either base.** Whether more data closes the gap depends on which
+epoch you read, and the two readings disagree.
+
+**1. Best epoch of 8 (`make bar`'s pick, the lowest median gap/floor).** The ratio falls with
+data on both bases:
+- PersonaPlex: 2.92, 2.87, 2.54, 2.09 for 15, 30, 59 and 117 dialogues.
+- moshiko: 2.95, 2.48, 2.45, 2.10.
+- Slope: about 10.5% per doubling across the whole ladder on both bases. The last rung is
+  steeper, 18% on PersonaPlex and 14% on moshiko.
+
+The catch is that these picks are epochs 4 to 8, deep in overfitting:
+- Gap and floor both grow about 4 to 8 times from epoch 1.
+- Within one run the ratio moves 0.3 to 0.5 between neighbouring epochs, about the size of the
+  last-rung drop.
+- The p90 ratio does not fall at the last rung: PersonaPlex 1.50 to 1.58, moshiko 1.65 to 1.66.
+
+**2. Least-overfit epoch (lowest absolute gap, epoch 1 or 2).** The gap itself falls with data:
+- PersonaPlex: 0.027, 0.023, 0.020, 0.018 (bare 0.046).
+- moshiko: 0.029, 0.028, 0.023, 0.021 (bare 0.059).
+
+But the floor falls with it, so the ratio barely moves:
+- PersonaPlex: 3.27, 3.28, 3.21, 3.04 (bare 3.93).
+- moshiko: 3.87, 3.18, 3.42, 2.87 (bare 3.08).
+
+Read against the design's three outcomes:
+- **Still falling at the full set:** yes, but only under reading 1. Under reading 2 the ratio
+  is close to flat on PersonaPlex.
+- **Flat above the floor:** partly. The ratio is flat at about 3 at the healthy epochs.
+  Training cuts the absolute gap by about 60% (PersonaPlex 0.046 to 0.018), but the floor
+  shrinks just as fast.
+- **Inside the floor:** no. The closest any run comes is a p90 ratio of 1.50 (PersonaPlex
+  1/2, epoch 4). The median ratio never goes below 2.09.
+
+These are single runs on 65 holdout turns with no noise estimate. Differences under about 0.3
+in the ratio, such as 2.92 against 2.87 or 2.48 against 2.45, are within noise.
 
 ## The curve (content frames)
 
@@ -39,15 +70,15 @@ median gap <= median floor and p90 gap <= p90 floor.
 | moshiko | 1/1 | 117 | 2.10 (5) | 1.66 (2) | 0.021 (1) | 2.87 |
 
 How to read it:
-- **Best epoch:** `make bar`'s "best epoch" is the lowest median ratio. Late epochs win it,
-  but not cleanly. Gap and floor both grow 3 to 7 times from epoch 1 to epoch 8 as every run
-  overfits, so the ratio improves partly because the floor inflates. The absolute gap is
-  lowest at epoch 1 or 2, where held-out text loss is also lowest.
-- **The data trend holds either way:** under both readings the ratio and the gap fall with
-  data.
-- **Door control:** the door, KL(C || A), lands at or under the floor in every row (bar.md),
-  so the harness and the TTS are sane.
-- **All frames:** on all frames, trained runs sit about 7 to 10 times above the floor. Those
+- **Best epoch:** `make bar`'s "best epoch" is the lowest median ratio, so late epochs win it.
+  From epoch 1 to epoch 8 the gap grows about 4 to 6 times and the floor about 5 to 8 times as
+  every run overfits. The ratio improves partly because the floor inflates.
+- **Lowest gap:** the absolute gap is lowest at epoch 1 or 2. Held-out text loss is lowest at
+  epoch 2 or 3.
+- **Door control:** the door, KL(C || A), lands within rounding of the floor in every row and
+  under it in nearly all. The largest excess is 0.0014 (PersonaPlex 1/2, epoch 5). So the
+  harness and the TTS are sane.
+- **All frames:** on all frames, trained runs sit about 3 to 19 times above the floor. Those
   frames include the pupil's own turn, where the typed rendering has no audio to match. Only
   content frames are the bar.
 - **Base:** PersonaPlex and moshiko track each other within noise at every rung. The base is
@@ -105,10 +136,23 @@ Peak memory was 49.4 GiB for PersonaPlex and 42.9 GiB for moshiko. Each measure 
 
 ## What it suggests for the gate
 
-- **Data is the lever the ladder points to.** Fitting the last rungs gives about 18% off the
-  median ratio per doubling. On that slope, about 3 or 4 more doublings reach the floor,
-  roughly 1,000 to 2,000 dialogues. That is a rough extrapolation from two points per base,
-  not a measurement.
-- **The epochs could be cut.** Every run overfits after epoch 2 or 3, so a bigger-corpus
-  rerun can drop to about 3 epochs. That would bring a full-set PersonaPlex run from 7 h to
-  about 2.7 h at this corpus size.
+Under reading 1 (the best epoch of 8), data is the lever, and the extrapolations differ by a
+factor of 3 to 7:
+- **Whole-ladder slope:** about 10.5% per doubling. That reaches the floor after about 6.6 more
+  doublings, around 11,000 dialogues, or about 170 h of rendering at the design's 15 h per
+  1,000.
+- **Last-rung slope:** 14 to 18% per doubling. That takes about 4 to 5 doublings, roughly
+  1,600 to 3,300 dialogues, or 25 to 50 h of rendering.
+- **Caveat:** both rest on best-of-8 picks from overfit epochs.
+
+Reading 2 (the least-overfit epoch) points the other way:
+- **The ratio is flat at about 3.** Data alone does not close it in this recipe.
+- **Overfitting comes first.** Every run starts overfitting after epoch 2 or 3, even at the
+  full set. That makes the recipe a candidate lever: LR, rank, regularisation, or fewer
+  epochs.
+
+Either way:
+- **Cut the epochs to 3 or fewer.** The next ladder can run 3 epochs or fewer. A full-set
+  PersonaPlex run would drop from 7 h to about 2.7 h at this corpus size.
+- **Measure noise.** Repeat one rung with a second seed so that differences of 0.3 in the
+  ratio can be told from noise.
