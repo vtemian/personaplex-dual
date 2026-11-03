@@ -245,9 +245,9 @@ def test_report_flags_floor_inflation_and_has_the_new_columns():
         "p90 ratio",
     ]
     v = _cells(text, "v")
-    assert v[3] == "0.40" and v[4] == "1.00"
+    assert v[3] == "0.400" and v[4] == "1.000"
     assert v[-1] == "down, floor inflated"
-    assert _cells(text, "s0")[4] == "0.50"
+    assert _cells(text, "s0")[4] == "0.500"
 
 
 def test_p90_ratio_is_read_at_the_decision_epoch():
