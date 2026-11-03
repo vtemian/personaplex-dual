@@ -24,7 +24,6 @@ Lines = Sequence[Mapping[str, Any]]
 Interval = tuple[float, float, float]
 Verdict = Literal["down", "up", "not moved", "down, floor inflated"]
 FLOOR_INFLATED: Verdict = "down, floor inflated"
-INFLATION = 1.5
 
 
 def _col(lines: Lines, key: str) -> Any:
@@ -91,11 +90,12 @@ def median_floor(lines: Lines) -> float:
     return float(np.median(_col(lines, "floor")))
 
 
-def floor_guard(v: Verdict, floor: float, floor_s0: float, floor_s1: float) -> Verdict:
-    """A "down" whose median content floor (at the decision epoch) is above 1.5 x the
-    mean of the two seeds' is "down, floor inflated": overfitting inflates the floor
-    faster than the gap, so the ratio falls without the gap improving."""
-    if v == "down" and floor > INFLATION * (floor_s0 + floor_s1) / 2:
+def gap_guard(v: Verdict, gap: float, gap_s0: float, gap_s1: float) -> Verdict:
+    """A "down" is plain only if the run's median content gap (at its decision epoch) is
+    at most the mean of the two seeds' (at theirs). Otherwise it is "down, floor
+    inflated": the ratio fell without the gap falling, i.e. through the floor. The bar
+    is gap <= floor, so a floor that merely grows does not move a recipe toward it."""
+    if v == "down" and gap > (gap_s0 + gap_s1) / 2:
         return FLOOR_INFLATED
     return v
 
@@ -132,23 +132,22 @@ def _excludes_zero(ci: Interval) -> int:
 
 
 def verdict(
-    r: float,
+    r_gap: float,
     r_s0: float,
     r_s1: float,
     ci_s0: Interval,
     ci_s1: Interval,
     threshold: float,
 ) -> Verdict:
-    """Moved only if |R_gap - R0| >= T and both paired intervals (vs seed 0, vs seed 1)
-    exclude 0 with the same sign, which is also the sign of R - R0.
-
-    Requiring the interval sign to match sign(R - R0) is an addition to B6.0.2 (stricter
-    than the plan: an interval excluding 0 on the wrong side of R0 is "not moved")."""
+    """B6.0.2's rule on R_gap: moved only if |R_gap - R0| >= T and both paired intervals
+    (vs seed 0, vs seed 1) exclude 0 with the same sign, which is also the sign of
+    R_gap - R0 (an interval excluding 0 on the wrong side of R0 is "not moved").
+    `gap_guard` then relabels a "down" whose gap did not fall."""
     r0 = (r_s0 + r_s1) / 2
     s0, s1 = _excludes_zero(ci_s0), _excludes_zero(ci_s1)
-    if abs(r - r0) < threshold or s0 == 0 or s0 != s1:
+    if abs(r_gap - r0) < threshold or s0 == 0 or s0 != s1:
         return "not moved"
-    if (s0 > 0) != (r > r0):
+    if (s0 > 0) != (r_gap > r0):
         return "not moved"
     return "up" if s0 > 0 else "down"
 
@@ -186,7 +185,7 @@ def report(
     dec = {k: lowest_gap(v, max_epoch) for k, v in runs.items()}
     lines = {k: runs[k][dec[k][0]] for k in runs}
     r_s0, r_s1 = dec[seeds[0]][1], dec[seeds[1]][1]
-    f_s0, f_s1 = median_floor(lines[seeds[0]]), median_floor(lines[seeds[1]])
+    g_s0, g_s1 = median_gap(lines[seeds[0]]), median_gap(lines[seeds[1]])
     d = abs(r_s0 - r_s1)
     r0 = (r_s0 + r_s1) / 2
     t = max(2 * d, 0.5)
@@ -207,7 +206,9 @@ def report(
         fl = median_floor(lines[label])
         v: str = "-"
         if label not in seeds:
-            v = floor_guard(verdict(rg, r_s0, r_s1, c0, c1, t), fl, f_s0, f_s1)
+            v = gap_guard(
+                verdict(rg, r_s0, r_s1, c0, c1, t), median_gap(lines[label]), g_s0, g_s1
+            )
         out.append(
             f"| {label} | {r:.2f} ({e}) | {rg:.2f} ({eg}) | "
             f"{median_gap(lines[label]):.3f} | {fl:.3f} | "
