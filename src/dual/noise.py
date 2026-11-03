@@ -210,7 +210,7 @@ def report(
             v = floor_guard(verdict(rg, r_s0, r_s1, c0, c1, t), fl, f_s0, f_s1)
         out.append(
             f"| {label} | {r:.2f} ({e}) | {rg:.2f} ({eg}) | "
-            f"{median_gap(lines[label]):.2f} | {fl:.2f} | "
+            f"{median_gap(lines[label]):.3f} | {fl:.3f} | "
             f"{p90_ratio(lines[label]):.2f} | {rg - r0:+.2f} | "
             f"{cell0} | {cell1} | {v} |"
         )
