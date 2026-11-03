@@ -12,6 +12,7 @@ from dual.noise import (
     pick,
     ratio,
     read_epochs,
+    report,
     verdict,
 )
 
@@ -146,3 +147,35 @@ def test_main_prints_the_noise_line_and_a_table(tmp_path, capsys):
     assert len(rows) == 1 + 3  # header, two seeds, one variant
     assert rows[-1].startswith("| v ")
     assert rows[-1].rstrip().endswith("down |")
+
+
+def test_ratio_and_paired_ci_refuse_a_non_finite_ratio():
+    zero_floor = run(GAPS, [0.0] * 8)
+    with pytest.raises(ValueError, match="finite"):
+        ratio(zero_floor)
+    with pytest.raises(ValueError, match="finite"):
+        paired_ci(zero_floor, run(GAPS, FLOORS))
+
+
+def test_paired_ci_refuses_a_resample_whose_median_floor_is_zero():
+    # the point ratio is finite, but a resample of the stems can pick only zero floors
+    floors = [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    a, b = run(GAPS, floors), run(GAPS, FLOORS)
+    assert np.isfinite(ratio(a))
+    with pytest.raises(ValueError, match="finite"):
+        paired_ci(a, b, draws=500)
+
+
+def test_report_gives_seed_rows_no_verdict_and_no_self_ci():
+    runs = {}
+    for label, scale in (("s0", 1.0), ("s1", 1.1), ("v", 0.2)):
+        runs[label] = {1: run([g * scale for g in GAPS] * 3, FLOORS * 3, per_stem=4)}
+    rows = report(runs, ["s0", "s1"], ["v"]).splitlines()[4:]
+    cells = [[c.strip() for c in x.strip("|").split("|")] for x in rows]
+    assert [c[0] for c in cells] == ["s0", "s1", "v"]
+    s0, s1, v = cells
+    assert s0[-1] == "-" and s1[-1] == "-"
+    assert s0[5] == "-" and s1[6] == "-"  # own self-comparison
+    assert s0[6] != "-" and s1[5] != "-"  # the cross-seed intervals stay
+    assert "+0.00 [+0.00, +0.00]" not in " ".join(s0 + s1)
+    assert v[-1] == "down" and v[5] != "-" and v[6] != "-"
