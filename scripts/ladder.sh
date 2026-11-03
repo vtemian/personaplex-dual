@@ -133,7 +133,7 @@ if [ -n "$FROM" ]; then
     n=${spec%%,*}; names="$names $n"
     [ "$n" = "$FROM" ] && found=1
   done
-  [ -n "$found" ] || { say "FROM=$FROM names no run of LADDER=$LADDER ($names )"; exit 2; }
+  [ -n "$found" ] || { say "FROM=$FROM names no run of LADDER=$LADDER (${names# })"; exit 2; }
 fi
 
 run_one() {  # run_one <name,base,slice,epochs[,arg word...]>

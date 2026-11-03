@@ -39,6 +39,7 @@ cat "$FAKE/mem" 2>/dev/null || echo 100
 """,
     "make": POP
     + """echo "make IMAGE=$IMAGE $*" >> "$FAKE/log"
+{ echo "--"; for a in "$@"; do printf '%s\n' "$a"; done; } >> "$FAKE/argv"
 mode=$(pop "$FAKE/make") || mode=ok
 if [ "$mode" = fail ]; then
   echo "sparks: could not copy --data: Operation timed out" >&2; exit 1
@@ -462,3 +463,26 @@ def test_ladder_1_default_commands_are_unchanged(box):
         "make IMAGE=img:tag -s train NAME=ladder-personaplex-1 BASE=personaplex"
         " SLICE=1 RENDER=render-1 EPOCHS=8"
     )
+
+
+def argv_calls(tmp_path):
+    """The fake make's argv, one list per call, one entry per real argv word."""
+    calls, cur = [], None
+    for x in (tmp_path / "fake" / "argv").read_text().split("\n")[:-1]:
+        if x == "--":
+            cur = []
+            calls.append(cur)
+        else:
+            cur.append(x)
+    return calls
+
+
+def test_ladder_2_train_carries_exactly_one_args_word(box, tmp_path):
+    r, _ = box(LADDER="2")
+    assert r.returncode == 0, r.stderr
+    trains = [c for c in argv_calls(tmp_path) if "train" in c]
+    assert len(trains) == len(LADDER2)
+    for call, (_, args) in zip(trains, LADDER2, strict=True):
+        words = [w for w in call if w.startswith("ARGS=")]
+        assert words == [f"ARGS={args}"]
+    assert "ARGS=--rank 64 --scaling 0.5" in trains[3]

@@ -27,7 +27,10 @@ def _col(lines: Lines, key: str) -> Any:
 
 
 def _div(num: float, den: float) -> float:
-    return num / den if den > 0 else float("inf")
+    out = num / den if den != 0 else float("nan")
+    if not np.isfinite(out):
+        raise ValueError(f"non-finite ratio: {num} / {den}")
+    return out
 
 
 def ratio(lines: Lines) -> float:
@@ -115,7 +118,10 @@ def verdict(
     threshold: float,
 ) -> Verdict:
     """Moved only if |R - R0| >= T and both paired intervals (vs seed 0, vs seed 1)
-    exclude 0 with the same sign, which is also the sign of R - R0."""
+    exclude 0 with the same sign, which is also the sign of R - R0.
+
+    Requiring the interval sign to match sign(R - R0) is an addition to B6.0.2 (stricter
+    than the plan: an interval excluding 0 on the wrong side of R0 is "not moved")."""
     r0 = (r_s0 + r_s1) / 2
     s0, s1 = _excludes_zero(ci_s0), _excludes_zero(ci_s1)
     if abs(r - r0) < threshold or s0 == 0 or s0 != s1:
@@ -172,10 +178,13 @@ def report(
         eg, rg = lowest_gap(runs[label], max_epoch)
         c0 = paired_ci(lines[label], lines[seeds[0]])
         c1 = paired_ci(lines[label], lines[seeds[1]])
+        is_seed = label in seeds
+        cell0 = "-" if label == seeds[0] else _ci(c0)
+        cell1 = "-" if label == seeds[1] else _ci(c1)
+        v = "-" if is_seed else verdict(r, r_s0, r_s1, c0, c1, t)
         out.append(
             f"| {label} | {r:.2f} ({e}) | {p90_ratio(lines[label]):.2f} | "
-            f"{rg:.2f} ({eg}) | {r - r0:+.2f} | {_ci(c0)} | {_ci(c1)} | "
-            f"{verdict(r, r_s0, r_s1, c0, c1, t)} |"
+            f"{rg:.2f} ({eg}) | {r - r0:+.2f} | {cell0} | {cell1} | {v} |"
         )
     return "\n".join(out)
 
