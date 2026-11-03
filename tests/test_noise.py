@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 
 from dual.noise import (
+    FLOOR_INFLATED,
+    floor_guard,
     lowest_gap,
     main,
     p90_ratio,
@@ -175,7 +177,88 @@ def test_report_gives_seed_rows_no_verdict_and_no_self_ci():
     assert [c[0] for c in cells] == ["s0", "s1", "v"]
     s0, s1, v = cells
     assert s0[-1] == "-" and s1[-1] == "-"
-    assert s0[5] == "-" and s1[6] == "-"  # own self-comparison
-    assert s0[6] != "-" and s1[5] != "-"  # the cross-seed intervals stay
+    assert s0[7] == "-" and s1[8] == "-"  # own self-comparison
+    assert s0[8] != "-" and s1[7] != "-"  # the cross-seed intervals stay
     assert "+0.00 [+0.00, +0.00]" not in " ".join(s0 + s1)
-    assert v[-1] == "down" and v[5] != "-" and v[6] != "-"
+    assert v[-1] == "down" and v[7] != "-" and v[8] != "-"
+
+
+def _epochs(gaps_floors):
+    """{epoch: run} from [(gap, floor), ...], one constant-valued run per epoch."""
+    return {
+        e: run([g] * 12, [f] * 12, epoch=e, per_stem=4)
+        for e, (g, f) in enumerate(gaps_floors, start=1)
+    }
+
+
+def _cells(report_text, label):
+    for x in report_text.splitlines():
+        c = [y.strip() for y in x.strip("|").split("|")]
+        if x.startswith("| ") and c[0] == label:
+            return c
+    raise AssertionError(label)
+
+
+def test_report_decides_on_r_gap_not_on_the_best_of_three_r():
+    seeds = {
+        "s0": _epochs([(1.0, 0.5), (2.0, 0.4), (3.0, 0.3)]),  # R_gap 2.0 (e1)
+        "s1": _epochs([(1.1, 0.5), (2.0, 0.4), (3.0, 0.3)]),  # R_gap 2.2 (e1)
+    }
+    # the lowest-gap epoch (1) has the seeds' ratio; epoch 3's floor inflates and R
+    # (the best of three) is far lower, 0.3, but R_gap is unchanged: not moved
+    v = _epochs([(1.05, 0.5), (2.0, 0.5), (0.9, 3.0)])
+    runs = {**seeds, "v": {1: v[1], 2: v[2], 3: v[3]}}
+    # make epoch 3 the best-R pick yet not the lowest-gap one
+    runs["v"][3] = run([1.2] * 12, [4.0] * 12, epoch=3, per_stem=4)  # R 0.3
+    assert pick(runs["v"])[0] == 3 and lowest_gap(runs["v"])[0] == 1
+    c = _cells(report(runs, ["s0", "s1"], ["v"]), "v")
+    assert c[-1] == "not moved"
+    assert c[1].endswith("(3)") and c[2].endswith("(1)")
+
+
+def test_floor_guard_labels_a_down_whose_floor_is_inflated():
+    assert floor_guard("down", 1.6, 1.0, 1.0) == FLOOR_INFLATED
+    assert floor_guard("down", 1.5, 1.0, 1.0) == "down"  # not above 1.5x
+    assert floor_guard("down", 1.0, 0.8, 1.2) == "down"
+    assert floor_guard("up", 5.0, 1.0, 1.0) == "up"
+    assert floor_guard("not moved", 5.0, 1.0, 1.0) == "not moved"
+    assert FLOOR_INFLATED == "down, floor inflated"
+
+
+def test_report_flags_floor_inflation_and_has_the_new_columns():
+    seeds = {
+        k: {1: run([g] * 12, [0.5] * 12, per_stem=4)}
+        for k, g in (("s0", 1.0), ("s1", 1.1))
+    }
+    runs = {
+        **seeds,
+        "v": {1: run([0.4] * 12, [1.0] * 12, per_stem=4)},
+    }  # R 0.4, floor 2x
+    text = report(runs, ["s0", "s1"], ["v"])
+    head = [c.strip() for c in text.splitlines()[2].strip("|").split("|")]
+    assert head[:6] == [
+        "run",
+        "R (epoch)",
+        "R_gap (epoch)",
+        "median gap",
+        "median floor",
+        "p90 ratio",
+    ]
+    v = _cells(text, "v")
+    assert v[3] == "0.40" and v[4] == "1.00"
+    assert v[-1] == "down, floor inflated"
+    assert _cells(text, "s0")[4] == "0.50"
+
+
+def test_p90_ratio_is_read_at_the_decision_epoch():
+    runs = {
+        "s0": {1: run([1.0] * 12, [0.5] * 12, per_stem=4)},
+        "s1": {1: run([1.0] * 12, [0.5] * 12, per_stem=4)},
+        # epoch 1 has the lowest gap; epoch 2 is the best-R pick (p90 3.0 vs 4.0 differ)
+        "v": {
+            1: run([1.0] * 12, [0.5] * 12, per_stem=4),
+            2: run([1.5] * 12, [4.0] * 12, per_stem=4),  # passes: the best-R pick
+        },
+    }
+    c = _cells(report(runs, ["s0", "s1"], ["v"]), "v")
+    assert c[5] == f"{p90_ratio(runs['v'][1]):.2f}"

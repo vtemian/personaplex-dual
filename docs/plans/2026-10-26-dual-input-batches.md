@@ -1845,27 +1845,47 @@ epochs, plus ~25 min per measured epoch, so ~1.3 h. That is ~4 h a run and ~20 h
 ### B6.0.2 What counts as "the recipe moved the ratio"
 
 Per run, read on content frames over epochs 1 to 3 only:
-- **R** is the best median gap/floor of its three epochs, `report.best`'s pick. **R_gap** is
-  the ratio at its lowest-median-gap epoch. Both are reported; R decides.
-- **Seed noise:** `d = |R(ladder-personaplex-1) - R(ladder2-pp-s1)|`. The reference
-  **R0** is the mean of the two seeds.
+- **R_gap decides.** It is the median gap/floor at the run's lowest-median-gap epoch
+  (`lowest_gap()`); that is the run's **decision epoch**. **R** is the best median gap/floor
+  of the three epochs, `report.best`'s pick. R is still reported, but it no longer decides:
+  as a run overfits, the floor inflates faster than the gap and the ratio falls while the gap
+  triples (ladder 1, personaplex, per epoch: 3.04, 3.24, 2.87, 2.43 at epoch 4), so a worse
+  fast variant could be called "down". This rule was changed before any ladder-2 result
+  existed.
+- **Seed noise:** `d = |R_gap(ladder-personaplex-1) - R_gap(ladder2-pp-s1)|`. The reference
+  **R0** is the mean of the two seeds' R_gap.
 - **Threshold:** `T = max(2 d, 0.5)`. The 0.5 is the holdout's own paired noise. It keeps a
   seed pair that agrees by chance from making the threshold tiny.
 
 A variant **moved the ratio** only if both hold:
-1. `|R - R0| >= T`, and
+1. `|R_gap - R0| >= T`, and
 2. the paired stem-bootstrap 95% interval (2,000 draws, seed 0, the same stems on both sides,
-   each run at its own R epoch) of R minus R(seed 0) and of R minus R(seed 1) both exclude 0,
-   with the same sign.
+   each run at its own R_gap epoch) of R_gap minus R_gap(seed 0) and of R_gap minus
+   R_gap(seed 1) both exclude 0, with the same sign, which is also the sign of R_gap - R0.
 
-It moved it **down** (better) or **up**. Anything else is **not moved**. A p90 ratio that
-contradicts the median verdict is reported beside it, but it does not change the verdict.
+It moved it **down** (better) or **up**. Anything else is **not moved**.
 
-How the gate reads the answer:
+**Floor-inflation guard.** If the verdict is "down" and the run's median content floor at its
+decision epoch exceeds 1.5 x the mean of the two seeds' median content floors at their
+decision epochs, the verdict becomes **"down, floor inflated"**: the ratio fell because the
+floor grew, not because the gap shrank. The gate does not count it as moved. A p90 ratio
+(read at the decision epoch) that contradicts the median verdict is reported beside it, but
+it does not change the verdict.
+
+The table gives, per run: R (epoch), R_gap (epoch), the median gap and median floor at the
+decision epoch, the p90 ratio there, R_gap - R0, the two intervals and the verdict. Seed rows
+show "-" for the verdict and for their own self-interval.
+
+How the gate reads the answer ("moved down" means a plain "down", never "down, floor
+inflated"):
 - **No variant moved down:** rank and LR are not the lever at this corpus size. The gate
   goes back to Vlad as (a) grow the corpus, (c) the engine, or a new recipe axis outside
   rank/LR (for example a consistency term on the typed rendering's answer).
 - **One or more moved down:** ladder 3 reruns the data rungs at the best variant's recipe.
+
+`ladder-2.md` must say that the bootstrap intervals are optimistic (the epoch is picked on
+the same 65 turns, and it is a percentile bootstrap over 13 stems), and that seed noise d is
+measured only at r16/2e-5.
 
 ### Task B6.1: `--rank`, `--scaling`, `--lr` on the train job; measure attaches the checkpoint's own rank (TDD)
 
@@ -1941,12 +1961,14 @@ Files: `src/dual/noise.py`, `tests/test_noise.py`, `Makefile` (target `noise`).
   - `lowest_gap(by_epoch, max_epoch=3) -> (epoch, ratio)`;
   - `paired_ci(a, b, draws=2000, seed=0) -> (delta, lo, hi)`. It resamples stems with
     replacement and uses the same draw on both sides. A stem missing from either side raises.
-  - `verdict(r, r_s0, r_s1, ci_s0, ci_s1, threshold) -> "down" | "up" | "not moved"`, per
-    B6.0.2.
+  - `verdict(r_gap, r_s0, r_s1, ci_s0, ci_s1, threshold) -> "down" | "up" | "not moved"`,
+    per B6.0.2, and `floor_guard(v, floor, floor_s0, floor_s1)`, which turns a "down" into
+    "down, floor inflated".
 - **CLI:** `python -m dual.noise ROOT --seeds LABEL LABEL --variants LABEL...` prints a
-  markdown table and the noise line. The table columns are run, R (epoch), p90 ratio there,
-  R_gap (epoch), R - R0, the 95% intervals against each seed, and the verdict. The noise line
-  gives d, R0 and T.
+  markdown table and the noise line. The table columns are run, R (epoch), R_gap (epoch),
+  median gap and median floor at the decision epoch, p90 ratio there, R_gap - R0, the 95%
+  intervals against each seed, and the verdict (B6.0.2, with the floor-inflation guard). The
+  noise line gives d, R0 and T, all on R_gap.
 - **Makefile:**
   ```make
   noise:
