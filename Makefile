@@ -57,3 +57,7 @@ bar:
 	scp -r '$(BOX):/srv/spark/runs/measure-*/measure' runs/
 	@ls runs/measure/*/summary.json >/dev/null 2>&1 || { echo "no runs/measure*/summary.json after scp: run make measure first"; exit 1; }
 	PYTHONPATH=src uv run python -m dual.report runs/ > docs/results/bar.md && cat docs/results/bar.md
+
+.PHONY: noise
+noise:
+	PYTHONPATH=src uv run python -m dual.noise runs/ --seeds personaplex-ladder-personaplex-1 personaplex-ladder2-pp-s1 --variants personaplex-ladder2-pp-lr5e-6 personaplex-ladder2-pp-lr1e-4 personaplex-ladder2-pp-r64 personaplex-ladder2-pp-r4
