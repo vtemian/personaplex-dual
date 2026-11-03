@@ -1,5 +1,8 @@
 """Seed noise and the "did the recipe move the ratio" verdict (B6.0.2). Pure: no torch.
 
+The deciding number is R_gap, the ratio at the lowest-median-gap epoch of 1..3; R (the
+best-of-3 pick) is reported only.
+
 `python -m dual.noise runs/ --seeds A B --variants C D ...` reads the per-turn lines
 `runs/measure/<label>/epoch-NN.jsonl` and prints the noise line (d, R0, T) and a row
 per run. The median and p90 are `kl.bar`'s (`np.median`, `np.percentile(.., 90)`),
@@ -19,7 +22,9 @@ import numpy as np
 
 Lines = Sequence[Mapping[str, Any]]
 Interval = tuple[float, float, float]
-Verdict = Literal["down", "up", "not moved"]
+Verdict = Literal["down", "up", "not moved", "down, floor inflated"]
+FLOOR_INFLATED: Verdict = "down, floor inflated"
+INFLATION = 1.5
 
 
 def _col(lines: Lines, key: str) -> Any:
@@ -78,6 +83,23 @@ def lowest_gap(by_epoch: Mapping[int, Lines], max_epoch: int = 3) -> tuple[int, 
     return e, ratio(by_epoch[e])
 
 
+def median_gap(lines: Lines) -> float:
+    return float(np.median(_col(lines, "gap")))
+
+
+def median_floor(lines: Lines) -> float:
+    return float(np.median(_col(lines, "floor")))
+
+
+def floor_guard(v: Verdict, floor: float, floor_s0: float, floor_s1: float) -> Verdict:
+    """A "down" whose median content floor (at the decision epoch) is above 1.5 x the
+    mean of the two seeds' is "down, floor inflated": overfitting inflates the floor
+    faster than the gap, so the ratio falls without the gap improving."""
+    if v == "down" and floor > INFLATION * (floor_s0 + floor_s1) / 2:
+        return FLOOR_INFLATED
+    return v
+
+
 def _by_stem(lines: Lines) -> dict[str, list[Mapping[str, Any]]]:
     out: dict[str, list[Mapping[str, Any]]] = {}
     for x in lines:
@@ -117,7 +139,7 @@ def verdict(
     ci_s1: Interval,
     threshold: float,
 ) -> Verdict:
-    """Moved only if |R - R0| >= T and both paired intervals (vs seed 0, vs seed 1)
+    """Moved only if |R_gap - R0| >= T and both paired intervals (vs seed 0, vs seed 1)
     exclude 0 with the same sign, which is also the sign of R - R0.
 
     Requiring the interval sign to match sign(R - R0) is an addition to B6.0.2 (stricter
@@ -160,31 +182,37 @@ def report(
 ) -> str:
     if len(seeds) != 2:
         raise ValueError("--seeds takes exactly two labels")
-    picked = {k: pick(v, max_epoch) for k, v in runs.items()}
-    lines = {k: runs[k][picked[k][0]] for k in runs}
-    r_s0, r_s1 = picked[seeds[0]][1], picked[seeds[1]][1]
+    best = {k: pick(v, max_epoch) for k, v in runs.items()}
+    dec = {k: lowest_gap(v, max_epoch) for k, v in runs.items()}
+    lines = {k: runs[k][dec[k][0]] for k in runs}
+    r_s0, r_s1 = dec[seeds[0]][1], dec[seeds[1]][1]
+    f_s0, f_s1 = median_floor(lines[seeds[0]]), median_floor(lines[seeds[1]])
     d = abs(r_s0 - r_s1)
     r0 = (r_s0 + r_s1) / 2
     t = max(2 * d, 0.5)
     out = [
-        f"Seed noise: d = {d:.2f}, R0 = {r0:.2f}, T = max(2d, 0.5) = {t:.2f}",
+        f"Seed noise (R_gap): d = {d:.2f}, R0 = {r0:.2f}, T = max(2d, 0.5) = {t:.2f}",
         "",
-        "| run | R (epoch) | p90 ratio | R_gap (epoch) | R - R0 | "
-        f"95% CI vs {seeds[0]} | 95% CI vs {seeds[1]} | verdict |",
-        "|---|---|---|---|---|---|---|---|",
+        "| run | R (epoch) | R_gap (epoch) | median gap | median floor | p90 ratio | "
+        f"R_gap - R0 | 95% CI vs {seeds[0]} | 95% CI vs {seeds[1]} | verdict |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for label in [*seeds, *variants]:
-        e, r = picked[label]
-        eg, rg = lowest_gap(runs[label], max_epoch)
+        e, r = best[label]
+        eg, rg = dec[label]
         c0 = paired_ci(lines[label], lines[seeds[0]])
         c1 = paired_ci(lines[label], lines[seeds[1]])
-        is_seed = label in seeds
         cell0 = "-" if label == seeds[0] else _ci(c0)
         cell1 = "-" if label == seeds[1] else _ci(c1)
-        v = "-" if is_seed else verdict(r, r_s0, r_s1, c0, c1, t)
+        fl = median_floor(lines[label])
+        v: str = "-"
+        if label not in seeds:
+            v = floor_guard(verdict(rg, r_s0, r_s1, c0, c1, t), fl, f_s0, f_s1)
         out.append(
-            f"| {label} | {r:.2f} ({e}) | {p90_ratio(lines[label]):.2f} | "
-            f"{rg:.2f} ({eg}) | {r - r0:+.2f} | {cell0} | {cell1} | {v} |"
+            f"| {label} | {r:.2f} ({e}) | {rg:.2f} ({eg}) | "
+            f"{median_gap(lines[label]):.2f} | {fl:.2f} | "
+            f"{p90_ratio(lines[label]):.2f} | {rg - r0:+.2f} | "
+            f"{cell0} | {cell1} | {v} |"
         )
     return "\n".join(out)
 
