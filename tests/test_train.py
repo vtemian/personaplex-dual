@@ -1,6 +1,8 @@
 import random
 
-from dual.jobs.train import batches
+import pytest
+
+from dual.jobs.train import batches, check_resume_lr, parse_args
 
 
 def rows(*frames):
@@ -100,3 +102,42 @@ def test_optimizer_state_loads_weights_only_and_resumes(tmp_path):
     opt2 = torch.optim.AdamW([w], lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
     opt2.load_state_dict(blob["resume"]["opt"])
     assert opt2.state_dict()["state"][0]["step"] == opt.state_dict()["state"][0]["step"]
+
+
+def test_recipe_flags_default_to_ladder_1(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["train", "--name", "n", "--base", "b"])
+    a = parse_args()
+    assert (a.rank, a.scaling, a.lr) == (16, 2.0, 2e-5)
+
+
+def test_recipe_flags_are_parsed(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "train",
+            "--name",
+            "n",
+            "--base",
+            "b",
+            "--rank",
+            "64",
+            "--scaling",
+            "0.5",
+            "--lr",
+            "1e-4",
+        ],
+    )
+    a = parse_args()
+    assert (a.rank, a.scaling, a.lr) == (64, 0.5, 1e-4)
+
+
+def test_resume_accepts_the_same_lr_and_a_ladder_1_checkpoint():
+    check_resume_lr({"lr": 1e-4}, 1e-4)
+    check_resume_lr({"epoch": 1}, 2e-5)  # missing key = the old default
+
+
+def test_resume_refuses_a_different_lr():
+    with pytest.raises(ValueError, match="lr"):
+        check_resume_lr({"lr": 2e-5}, 1e-4)
+    with pytest.raises(ValueError, match="lr"):
+        check_resume_lr({}, 1e-4)

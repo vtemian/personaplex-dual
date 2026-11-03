@@ -109,6 +109,7 @@ def turn_lines(lm: Any, records: Sequence[dict[str, Any]], epoch: int) -> list[A
 def main() -> None:
     from dual.model import (
         EAGER_DEFAULT,
+        adapter_setup,
         attach_lora,
         load_base,
         load_blob_adapters,
@@ -132,7 +133,8 @@ def main() -> None:
         ckpts = sorted((root / args.run / "train").glob("model-epoch-*.pt"))
         if not ckpts:
             raise SystemExit(f"no checkpoints in runs/{args.run}/train")
-        attach_lora(base)
+        # the first checkpoint's own setup; load_blob_adapters checks every one
+        attach_lora(base, *adapter_setup(read_blob(ckpts[0])["meta"]))
     else:
         ckpts = []
     print(
