@@ -1865,10 +1865,13 @@ A variant **moved the ratio** only if both hold:
 
 It moved it **down** (better) or **up**. Anything else is **not moved**.
 
-**Floor-inflation guard.** If the verdict is "down" and the run's median content floor at its
-decision epoch exceeds 1.5 x the mean of the two seeds' median content floors at their
-decision epochs, the verdict becomes **"down, floor inflated"**: the ratio fell because the
-floor grew, not because the gap shrank. The gate does not count it as moved. A p90 ratio
+**Floor-inflation guard.** A "down" is plain only if the run's median content gap at its
+decision epoch is at most the mean of the two seeds' median content gaps at their decision
+epochs. Otherwise the verdict becomes **"down, floor inflated"**: the ratio fell without the
+gap falling, so it fell through the floor. The bar is gap <= floor, so a recipe whose ratio
+falls only because the floor grows does not move toward it. (A floor test such as 1.5 x the
+seeds' floor is too loose: with R0 about 3.12 and T = 0.5, a variant with an unchanged gap
+clears T on about 1.19 x floor growth.) The gate does not count it as moved. A p90 ratio
 (read at the decision epoch) that contradicts the median verdict is reported beside it, but
 it does not change the verdict.
 
@@ -1962,12 +1965,12 @@ Files: `src/dual/noise.py`, `tests/test_noise.py`, `Makefile` (target `noise`).
   - `paired_ci(a, b, draws=2000, seed=0) -> (delta, lo, hi)`. It resamples stems with
     replacement and uses the same draw on both sides. A stem missing from either side raises.
   - `verdict(r_gap, r_s0, r_s1, ci_s0, ci_s1, threshold) -> "down" | "up" | "not moved"`,
-    per B6.0.2, and `floor_guard(v, floor, floor_s0, floor_s1)`, which turns a "down" into
-    "down, floor inflated".
+    per B6.0.2, and `gap_guard(v, gap, gap_s0, gap_s1)`, which turns a "down" whose
+    median gap is above the seeds' mean into "down, floor inflated".
 - **CLI:** `python -m dual.noise ROOT --seeds LABEL LABEL --variants LABEL...` prints a
   markdown table and the noise line. The table columns are run, R (epoch), R_gap (epoch),
   median gap and median floor at the decision epoch, p90 ratio there, R_gap - R0, the 95%
-  intervals against each seed, and the verdict (B6.0.2, with the floor-inflation guard). The
+  intervals against each seed, and the verdict (B6.0.2, with the gap guard). The
   noise line gives d, R0 and T, all on R_gap.
 - **Makefile:**
   ```make
