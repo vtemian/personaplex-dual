@@ -22,7 +22,9 @@ case "$1" in
   wait) line=$(pop "$FAKE/wait") || line="0"; exit "$line" ;;
   status) line=$(pop "$FAKE/status") || line="1 "
           rc=${line%% *}; out=${line#* }; [ -z "$out" ] || echo "$out"; exit "$rc" ;;
-  queue) line=$(pop "$FAKE/queue") || line="0 []"
+  queue) if [ -e "$FAKE/late" ] && ! grep -q '^sleep ' "$FAKE/log"; then
+           echo "[]"; exit 0; fi
+         line=$(pop "$FAKE/queue") || line="0 []"
          rc=${line%% *}; out=${line#* }; [ -z "$out" ] || echo "$out"; exit "$rc" ;;
 esac
 """,
@@ -232,6 +234,20 @@ def test_failed_submit_adopts_the_job_already_in_the_queue(box):
     assert "adopt" in r.stdout and "job-adopted" in r.stdout
     assert len([x for x in submits(log) if "train" in x]) == 1
     assert "sparks wait --timeout 600 job-adopted" in log
+
+
+def test_a_late_appearing_job_is_adopted_not_resubmitted(box, tmp_path):
+    # sparks accepted the job but the queue shows it only after a sleep has happened
+    (tmp_path / "fake").joinpath("late").touch()
+    r, log = box(
+        make=["fail"],
+        queue=[queue_json("ladder-moshiko-1", "job-late")],
+        FROM="ladder-moshiko-1",
+    )
+    assert r.returncode == 0, r.stderr
+    assert "adopt" in r.stdout and "job-late" in r.stdout
+    assert len([x for x in submits(log) if "train" in x]) == 1
+    assert "sparks wait --timeout 600 job-late" in log
 
 
 def test_failed_submit_with_nothing_queued_resubmits(box):

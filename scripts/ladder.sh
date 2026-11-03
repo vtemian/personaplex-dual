@@ -68,6 +68,8 @@ submit() {  # submit <job name> <make target and args...>
     JOB=$(printf '%s\n' "$out" | awk '$1 ~ /^job-[A-Za-z0-9_-]+$/ {id = $1} END {if (id != "") print id}') || JOB=""
     if [ "$rc" -eq 0 ] && [ -n "$JOB" ]; then say "submitted $jname $JOB"; return 0; fi
     say "$jname: make exited $rc without a usable job id; looking in the queue"
+    # a job sparks accepted can show in the queue a little late; give it time before looking
+    [ "$rc" -eq 0 ] || sleep "$SLEEP"
     while :; do
       if found=$(queued_job "$jname" $((t0 - 300))); then break; fi
       say "$jname: sparks queue unreadable; retrying in ${SLEEP}s"
