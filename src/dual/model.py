@@ -60,6 +60,44 @@ def set_compile_mode(eager: bool) -> None:
         os.environ["NO_TORCH_COMPILE"] = "1"
 
 
+# The GB10's 121 GiB is shared by GPU and host: a train peaks near 51 GiB, and 64 leaves
+# the host about 57. An overrun past the cap raises a CUDA OOM (the job fails) instead
+# of starving the host until the box freezes.
+MEM_CAP_GIB = 64.0
+
+
+def cap_gpu_fraction(cap_gib: float, total_bytes: int) -> float:
+    """`cap_gib` as a share of `total_bytes`; refuses a cap <= 0 or over the card."""
+    if cap_gib <= 0:
+        raise ValueError(f"memory cap {cap_gib} GiB: must be positive")
+    fraction = cap_gib * 2**30 / total_bytes
+    if fraction > 1:
+        raise ValueError(
+            f"memory cap {cap_gib} GiB is over the card's {total_bytes / 2**30:.1f} GiB"
+        )
+    return fraction
+
+
+def cap_gpu_memory(cap_gib: float) -> float:
+    """Call before any CUDA tensor exists: the allocator reads PYTORCH_CUDA_ALLOC_CONF
+    when it first initialises. Sets expandable segments (never overriding a value
+    already in the environment), then, if CUDA is present and cap_gib > 0, caps this
+    process at cap_gib via set_per_process_memory_fraction. Returns the fraction set,
+    or 0.0 when no cap was applied (no CUDA, or cap_gib == 0 which disables it)."""
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    if cap_gib == 0 or not torch.cuda.is_available():
+        print(f"gpu memory cap: none (cap {cap_gib} GiB, no CUDA or disabled)")
+        return 0.0
+    total = torch.cuda.get_device_properties(0).total_memory
+    fraction = cap_gpu_fraction(cap_gib, total)
+    torch.cuda.set_per_process_memory_fraction(fraction, 0)
+    print(
+        f"gpu memory cap: {cap_gib} GiB = fraction {fraction:.4f} "
+        f"of {total / 2**30:.1f} GiB"
+    )
+    return fraction
+
+
 def personaplex_dir() -> pathlib.Path:
     return pathlib.Path.cwd() / "models" / "personaplex-7b-v1"
 
