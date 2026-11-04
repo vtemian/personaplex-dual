@@ -39,6 +39,7 @@ cat "$FAKE/mem" 2>/dev/null || echo 100
 """,
     "make": POP
     + """echo "make IMAGE=$IMAGE $*" >> "$FAKE/log"
+{ echo "--"; for a in "$@"; do printf '%s\n' "$a"; done; } >> "$FAKE/argv"
 mode=$(pop "$FAKE/make") || mode=ok
 if [ "$mode" = fail ]; then
   echo "sparks: could not copy --data: Operation timed out" >&2; exit 1
@@ -391,3 +392,97 @@ def test_queue_entries_missing_fields_are_skipped(box):
     )
     assert r.returncode == 0, r.stderr
     assert "adopted ladder-moshiko-1 job-good" in r.stdout
+
+
+LADDER2 = [
+    ("ladder2-pp-s1", "--seed 1"),
+    ("ladder2-pp-lr5e-6", "--lr 5e-6"),
+    ("ladder2-pp-lr1e-4", "--lr 1e-4"),
+    ("ladder2-pp-r64", "--rank 64 --scaling 0.5"),
+    ("ladder2-pp-r4", "--rank 4 --scaling 8.0"),
+]
+
+
+def expected_ladder2(runs):
+    out = []
+    for name, args in runs:
+        out.append(
+            f"make IMAGE=img:tag -s train NAME={name} BASE=personaplex SLICE=1"
+            f" RENDER=render-1 EPOCHS=3 ARGS={args}"
+        )
+        out.append(
+            f"make IMAGE=img:tag -s measure NAME={name} BASE=personaplex"
+            f" RUN={name} RENDER=render-1"
+        )
+    return out
+
+
+def test_ladder_2_submits_five_trains_each_followed_by_its_measure(box):
+    r, log = box(LADDER="2")
+    assert r.returncode == 0, r.stderr
+    assert submits(log) == expected_ladder2(LADDER2)
+    assert " bar BOX=vlad@box" in log[-1]
+
+
+def test_ladder_2_from_starts_there(box):
+    r, log = box(LADDER="2", FROM="ladder2-pp-r64")
+    assert r.returncode == 0, r.stderr
+    assert submits(log) == expected_ladder2(LADDER2[3:])
+
+
+def test_ladder_2_gates_before_every_submit(box):
+    r, log = box(LADDER="2", FROM="ladder2-pp-r4")
+    assert r.returncode == 0, r.stderr
+    assert len([x for x in log if x.startswith("ssh")]) == 2
+
+
+def test_ladder_2_rejects_a_ladder_1_run_name(box):
+    r, log = box(LADDER="2", FROM="ladder-moshiko-1")
+    assert r.returncode == 2
+    assert "ladder2-pp-r64" in r.stdout + r.stderr
+    assert submits(log) == []
+
+
+def test_ladder_1_rejects_a_ladder_2_run_name(box):
+    r, log = box(FROM="ladder2-pp-s1")
+    assert r.returncode == 2
+    assert submits(log) == []
+
+
+def test_unknown_ladder_exits_2(box):
+    r, log = box(LADDER="3")
+    assert r.returncode == 2
+    assert "LADDER" in r.stdout + r.stderr
+    assert submits(log) == []
+
+
+def test_ladder_1_default_commands_are_unchanged(box):
+    r, log = box(FROM="ladder-personaplex-1")
+    assert r.returncode == 0, r.stderr
+    assert submits(log)[0] == (
+        "make IMAGE=img:tag -s train NAME=ladder-personaplex-1 BASE=personaplex"
+        " SLICE=1 RENDER=render-1 EPOCHS=8"
+    )
+
+
+def argv_calls(tmp_path):
+    """The fake make's argv, one list per call, one entry per real argv word."""
+    calls, cur = [], None
+    for x in (tmp_path / "fake" / "argv").read_text().split("\n")[:-1]:
+        if x == "--":
+            cur = []
+            calls.append(cur)
+        else:
+            cur.append(x)
+    return calls
+
+
+def test_ladder_2_train_carries_exactly_one_args_word(box, tmp_path):
+    r, _ = box(LADDER="2")
+    assert r.returncode == 0, r.stderr
+    trains = [c for c in argv_calls(tmp_path) if "train" in c]
+    assert len(trains) == len(LADDER2)
+    for call, (_, args) in zip(trains, LADDER2, strict=True):
+        words = [w for w in call if w.startswith("ARGS=")]
+        assert words == [f"ARGS={args}"]
+    assert "ARGS=--rank 64 --scaling 0.5" in trains[3]

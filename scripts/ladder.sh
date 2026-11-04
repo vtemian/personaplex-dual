@@ -1,7 +1,12 @@
 #!/bin/sh
-# Eight runs, one queue: both bases over the four rungs of render-1, then one measure each.
+# One queue, selected by LADDER (default 1). LADDER=1: eight runs, both bases over the four
+# rungs of render-1 (ladder-{personaplex,moshiko}-{8,4,2,1}, EPOCHS=8). LADDER=2: the recipe
+# sweep, five personaplex SLICE=1 EPOCHS=3 runs, each with its own ARGS (ladder2-pp-s1
+# --seed 1, -lr5e-6 --lr 5e-6, -lr1e-4 --lr 1e-4, -r64 --rank 64 --scaling 0.5, -r4
+# --rank 4 --scaling 8.0). Each train is followed by its measure (no ARGS: measure reads the
+# setup from the checkpoint). An unknown LADDER, or a FROM outside the selected list, exits 2.
 # Runs are submitted one at a time, so a box hang loses at most one; FROM=<run name> skips
-# the runs before it (a hung train is resumed by hand with ARGS=--resume, not by this).
+# the runs before it in the selected ladder (a hung train is resumed by hand with ARGS=--resume, not by this).
 # It refuses to start a run while the box has less than MIN_AVAIL_GIB available: a
 # PersonaPlex train peaks at ~50 GiB (60 eager) of the GB10's 121 GiB unified memory, and
 # the box has hung twice when other GPU tenants left less than that free.
@@ -17,6 +22,7 @@ IMAGE="${IMAGE:?set IMAGE to the tag smoke-train pushed (sparks status <job> nam
 HOST="${SPARKS_HOST:?set SPARKS_HOST (vlad@192.168.1.140 on the LAN)}"
 MIN_AVAIL_GIB="${MIN_AVAIL_GIB:-70}"
 FROM="${FROM:-}"
+LADDER="${LADDER:-1}"
 
 SLEEP="${LADDER_SLEEP:-60}"
 
@@ -105,24 +111,56 @@ wait_job() {
   done
 }
 
+# The run list: one word per run, "name,base,slice,epochs[,arg word...]" (the arg words are
+# joined by single spaces into the one ARGS=... make variable). Words, never a `while read`
+# loop on stdin: ssh in gate() would read the rest of the list.
+case "$LADDER" in
+  1) RUNS=""
+     for base in personaplex moshiko; do
+       for slice in 8 4 2 1; do RUNS="$RUNS ladder-$base-$slice,$base,$slice,8"; done
+     done ;;
+  2) RUNS="ladder2-pp-s1,personaplex,1,3,--seed,1
+ladder2-pp-lr5e-6,personaplex,1,3,--lr,5e-6
+ladder2-pp-lr1e-4,personaplex,1,3,--lr,1e-4
+ladder2-pp-r64,personaplex,1,3,--rank,64,--scaling,0.5
+ladder2-pp-r4,personaplex,1,3,--rank,4,--scaling,8.0" ;;
+  *) say "LADDER=$LADDER is not a ladder (1 or 2)"; exit 2 ;;
+esac
+
 if [ -n "$FROM" ]; then
-  found=""
-  for b in personaplex moshiko; do for sl in 8 4 2 1; do [ "ladder-$b-$sl" = "$FROM" ] && found=1; done; done
-  [ -n "$found" ] || { say "FROM=$FROM names no run (ladder-{personaplex,moshiko}-{8,4,2,1})"; exit 2; }
+  names=""; found=""
+  for spec in $RUNS; do
+    n=${spec%%,*}; names="$names $n"
+    [ "$n" = "$FROM" ] && found=1
+  done
+  [ -n "$found" ] || { say "FROM=$FROM names no run of LADDER=$LADDER (${names# })"; exit 2; }
 fi
 
-for base in personaplex moshiko; do
-  for slice in 8 4 2 1; do
-    name="ladder-$base-$slice"
-    if [ -n "$FROM" ]; then [ "$name" = "$FROM" ] && FROM="" || continue; fi
-    gate "$name"
-    submit "$name" train NAME=$name BASE=$base SLICE=$slice RENDER=render-1 EPOCHS=8
-    wait_job "$JOB" || exit 1
-    gate "$name (measure)"
-    submit "measure-$name" measure NAME=$name BASE=$base RUN=$name RENDER=render-1
-    MJOB=$JOB
-    wait_job "$MJOB" || exit 1
-  done
+run_one() {  # run_one <name,base,slice,epochs[,arg word...]>
+  oldifs=$IFS; IFS=,
+  set -- $1
+  IFS=$oldifs
+  name=$1; base=$2; slice=$3; epochs=$4; shift 4
+  extra=""
+  if [ "$#" -gt 0 ]; then extra="ARGS=$*"; fi   # "$*" joins with a space (IFS restored)
+  gate "$name"
+  # ladder 1 passes no ARGS word at all; ladder 2 passes exactly one (quoted: one argv word)
+  if [ -n "$extra" ]; then
+    submit "$name" train NAME="$name" BASE="$base" SLICE="$slice" RENDER=render-1 EPOCHS="$epochs" "$extra"
+  else
+    submit "$name" train NAME="$name" BASE="$base" SLICE="$slice" RENDER=render-1 EPOCHS="$epochs"
+  fi
+  wait_job "$JOB" || exit 1
+  gate "$name (measure)"
+  submit "measure-$name" measure NAME="$name" BASE="$base" RUN="$name" RENDER=render-1
+  MJOB=$JOB
+  wait_job "$MJOB" || exit 1
+}
+
+for spec in $RUNS; do
+  name=${spec%%,*}
+  if [ -n "$FROM" ]; then [ "$name" = "$FROM" ] && FROM="" || continue; fi
+  run_one "$spec"
 done
 n=0
 until make bar BOX="$HOST"; do

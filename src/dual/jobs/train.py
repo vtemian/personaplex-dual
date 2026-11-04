@@ -14,7 +14,14 @@ import torch
 from sparks.emit import track
 
 from dual.ladder import rung
-from dual.model import EAGER_DEFAULT, set_compile_mode
+from dual.model import (
+    EAGER_DEFAULT,
+    MEM_CAP_GIB,
+    RANK,
+    SCALING,
+    cap_gpu_memory,
+    set_compile_mode,
+)
 
 LR = 2e-5
 BETAS = (0.9, 0.95)
@@ -32,7 +39,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--render", default="render-1")
     p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--lr", type=float, default=LR)
+    p.add_argument("--rank", type=int, default=RANK)
+    p.add_argument("--scaling", type=float, default=SCALING)
     p.add_argument("--frames-per-batch", type=int, default=FRAMES_PER_BATCH)
+    p.add_argument(
+        "--mem-cap-gib",
+        type=float,
+        default=MEM_CAP_GIB,
+        help="cap this process's GPU memory; 0 disables the cap",
+    )
     p.add_argument(
         "--resume", action="store_true", help="continue from the latest epoch"
     )
@@ -95,6 +111,14 @@ def latest_checkpoint(out: pathlib.Path) -> tuple[int, pathlib.Path] | None:
     return max(found, default=None)
 
 
+def check_resume_lr(run_meta: dict[str, Any], lr: float) -> None:
+    """--resume continues the optimiser state, so the rate must be the run's own.
+    A checkpoint without "lr" predates the flag and ran at LR."""
+    had = float(run_meta.get("lr", LR))
+    if had != lr:
+        raise ValueError(f"--resume: checkpoint ran at lr {had}, --lr is {lr}")
+
+
 def refuse_stale(out: pathlib.Path, resume: bool) -> None:
     if not resume and latest_checkpoint(out) is not None:
         raise SystemExit(
@@ -126,6 +150,9 @@ def restore_rng(rng: random.Random, state: dict[str, Any]) -> None:
 def main() -> None:
     args = parse_args()
     set_compile_mode(args.eager or (EAGER_DEFAULT and not args.compile))
+    # torch is already imported here, but the caching allocator reads
+    # PYTORCH_CUDA_ALLOC_CONF lazily, at its first CUDA allocation, so this is in time.
+    cap_gpu_memory(args.mem_cap_gib)
     from training.moshi.trunk_lora import unmoved
 
     from dual.model import (
@@ -158,22 +185,27 @@ def main() -> None:
     print(
         f"base {args.base} slice 1/{args.slice}: {len(keep)} dialogues, "
         f"{len(rows)} rows, {len(held)} held, {steps_per_epoch} steps/epoch "
-        f"(<= {limit} frames a batch)"
+        f"(<= {limit} frames a batch); rank {args.rank} scaling {args.scaling} "
+        f"lr {args.lr} mem cap {args.mem_cap_gib} GiB"
     )
 
     base = load_base(args.base)
-    attach_lora(base)
+    attach_lora(base, args.rank, args.scaling)
     lm = base.lm
     params = [p for p in lm.parameters() if p.requires_grad]
     # weight_decay is chalkboard's: its dv3a trunk group
     # (vendor/training/jobs/train_moshi.py:514) runs AdamW's default 0.01.
-    opt = torch.optim.AdamW(params, lr=LR, betas=BETAS, weight_decay=0.01)
+    opt = torch.optim.AdamW(params, lr=args.lr, betas=BETAS, weight_decay=0.01)
     first = 1
     if args.resume:
         latest = latest_checkpoint(out)
         if latest is None:
             raise SystemExit(f"--resume: no checkpoints in {out}")
         blob = read_blob(latest[1])
+        try:
+            check_resume_lr(blob.get("run", {}), args.lr)
+        except ValueError as e:
+            raise SystemExit(str(e)) from e
         load_blob_adapters(base, blob)
         opt.load_state_dict(blob["resume"]["opt"])
         restore_rng(rng, blob["resume"]["rng"])
@@ -207,7 +239,7 @@ def main() -> None:
                 run.step(
                     loss={"total": vals[0], "text": vals[1], "audio": vals[2]},
                     grad_norm=norm,
-                    learning_rate=LR,
+                    learning_rate=args.lr,
                     epoch=epoch - 1 + (i + 1) / steps_per_epoch,
                 )
                 if i % 10 == 0:
@@ -234,6 +266,10 @@ def main() -> None:
                     "render": args.render,
                     "seed": args.seed,
                     "name": args.name,
+                    "rank": args.rank,
+                    "scaling": args.scaling,
+                    "lr": args.lr,
+                    "mem_cap_gib": args.mem_cap_gib,
                 },
                 resume={"opt": opt.state_dict(), "rng": capture_rng(rng)},
             )

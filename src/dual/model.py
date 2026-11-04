@@ -27,8 +27,15 @@ from dual.constants import (
 
 RANK = 16
 SCALING = 2.0
-# chalkboard training/moshi/trunk_lora.py: 66,560 per unit of rank per layer, x16 x32.
-ADAPTER_PARAMS = 34_078_720
+# chalkboard trunk_lora.py: 66,560 per unit of rank per layer, x32 layers.
+ADAPTER_PARAMS_PER_RANK = 2_129_920
+ADAPTER_PARAMS = ADAPTER_PARAMS_PER_RANK * RANK  # 34,078,720
+
+
+def adapter_params(rank: int) -> int:
+    return ADAPTER_PARAMS_PER_RANK * rank
+
+
 # PersonaPlex's depformer predicts 16 streams: moshi's 8, then the pupil's 8.
 PERSONAPLEX_DEP_Q = 16
 
@@ -39,6 +46,8 @@ class Base:
     lm: Any  # moshi LMModel
     spm: Any  # sentencepiece processor
     info: Any  # CheckpointInfo, for get_mimi
+    rank: int | None = None  # set by attach_lora
+    scaling: float | None = None
 
 
 EAGER_DEFAULT = False
@@ -49,6 +58,44 @@ def set_compile_mode(eager: bool) -> None:
     NO_TORCH_COMPILE at import and then skips torch_compile_lazy."""
     if eager:
         os.environ["NO_TORCH_COMPILE"] = "1"
+
+
+# The GB10's 121 GiB is shared by GPU and host: a train peaks near 51 GiB, and 64 leaves
+# the host about 57. An overrun past the cap raises a CUDA OOM (the job fails) instead
+# of starving the host until the box freezes.
+MEM_CAP_GIB = 64.0
+
+
+def cap_gpu_fraction(cap_gib: float, total_bytes: int) -> float:
+    """`cap_gib` as a share of `total_bytes`; refuses a cap <= 0 or over the card."""
+    if cap_gib <= 0:
+        raise ValueError(f"memory cap {cap_gib} GiB: must be positive")
+    fraction = cap_gib * 2**30 / total_bytes
+    if fraction > 1:
+        raise ValueError(
+            f"memory cap {cap_gib} GiB is over the card's {total_bytes / 2**30:.1f} GiB"
+        )
+    return fraction
+
+
+def cap_gpu_memory(cap_gib: float) -> float:
+    """Call before any CUDA tensor exists: the allocator reads PYTORCH_CUDA_ALLOC_CONF
+    when it first initialises. Sets expandable segments (never overriding a value
+    already in the environment), then, if CUDA is present and cap_gib > 0, caps this
+    process at cap_gib via set_per_process_memory_fraction. Returns the fraction set,
+    or 0.0 when no cap was applied (no CUDA, or cap_gib == 0 which disables it)."""
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    if cap_gib == 0 or not torch.cuda.is_available():
+        print(f"gpu memory cap: none (cap {cap_gib} GiB, no CUDA or disabled)")
+        return 0.0
+    total = torch.cuda.get_device_properties(0).total_memory
+    fraction = cap_gpu_fraction(cap_gib, total)
+    torch.cuda.set_per_process_memory_fraction(fraction, 0)
+    print(
+        f"gpu memory cap: {cap_gib} GiB = fraction {fraction:.4f} "
+        f"of {total / 2**30:.1f} GiB"
+    )
+    return fraction
 
 
 def personaplex_dir() -> pathlib.Path:
@@ -97,18 +144,22 @@ def describe(base: Base) -> dict[str, int]:
     }
 
 
-def attach_lora(base: Base) -> int:
-    """Wraps the trunk's 128 linears; leaves the lm in train mode (attach_measured)."""
+def attach_lora(base: Base, rank: int = RANK, scaling: float = SCALING) -> int:
+    """Wraps the trunk's 128 linears; leaves the lm in train mode (attach_measured).
+    Records rank and scaling on `base`, which adapter_meta reads."""
     from training.moshi.trunk_lora import attach_measured
 
-    modules, drift = attach_measured(base.lm, RANK, SCALING)
+    modules, drift = attach_measured(base.lm, rank, scaling)
     if drift != 0.0:
         raise RuntimeError(f"a fresh adapter moved the trunk by {drift}")
     for name, param in base.lm.named_parameters():
         param.requires_grad_(".lora_" in name)
     trainable = sum(p.numel() for p in base.lm.parameters() if p.requires_grad)
-    if trainable != ADAPTER_PARAMS:
-        raise RuntimeError(f"{trainable} trainable parameters, not {ADAPTER_PARAMS}")
+    if trainable != adapter_params(rank):
+        raise RuntimeError(
+            f"{trainable} trainable parameters, not {adapter_params(rank)}"
+        )
+    base.rank, base.scaling = rank, scaling
     return int(modules)
 
 
@@ -147,12 +198,22 @@ def check_adapter_meta(got: dict[str, Any], want: dict[str, Any]) -> None:
 
 
 def adapter_meta(base: Base) -> dict[str, Any]:
+    if base.rank is None or base.scaling is None:
+        raise RuntimeError(f"{base.name}: no adapter attached (attach_lora first)")
     return {
         "base": base.name,
-        "rank": RANK,
-        "scaling": SCALING,
-        "params": ADAPTER_PARAMS,
+        "rank": base.rank,
+        "scaling": base.scaling,
+        "params": adapter_params(base.rank),
     }
+
+
+def adapter_setup(meta: dict[str, Any]) -> tuple[int, float]:
+    """(rank, scaling) of a checkpoint's meta; refuses one missing either."""
+    for key in ("rank", "scaling"):
+        if key not in meta:
+            raise ValueError(f"adapter file has no {key!r} in its metadata")
+    return int(meta["rank"]), float(meta["scaling"])
 
 
 def save_adapters(
