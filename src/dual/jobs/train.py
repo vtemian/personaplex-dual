@@ -14,7 +14,14 @@ import torch
 from sparks.emit import track
 
 from dual.ladder import rung
-from dual.model import EAGER_DEFAULT, RANK, SCALING, set_compile_mode
+from dual.model import (
+    EAGER_DEFAULT,
+    MEM_CAP_GIB,
+    RANK,
+    SCALING,
+    cap_gpu_memory,
+    set_compile_mode,
+)
 
 LR = 2e-5
 BETAS = (0.9, 0.95)
@@ -36,6 +43,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--rank", type=int, default=RANK)
     p.add_argument("--scaling", type=float, default=SCALING)
     p.add_argument("--frames-per-batch", type=int, default=FRAMES_PER_BATCH)
+    p.add_argument(
+        "--mem-cap-gib",
+        type=float,
+        default=MEM_CAP_GIB,
+        help="cap this process's GPU memory; 0 disables the cap",
+    )
     p.add_argument(
         "--resume", action="store_true", help="continue from the latest epoch"
     )
@@ -137,6 +150,9 @@ def restore_rng(rng: random.Random, state: dict[str, Any]) -> None:
 def main() -> None:
     args = parse_args()
     set_compile_mode(args.eager or (EAGER_DEFAULT and not args.compile))
+    # torch is already imported here, but the caching allocator reads
+    # PYTORCH_CUDA_ALLOC_CONF lazily, at its first CUDA allocation, so this is in time.
+    cap_gpu_memory(args.mem_cap_gib)
     from training.moshi.trunk_lora import unmoved
 
     from dual.model import (
@@ -170,7 +186,7 @@ def main() -> None:
         f"base {args.base} slice 1/{args.slice}: {len(keep)} dialogues, "
         f"{len(rows)} rows, {len(held)} held, {steps_per_epoch} steps/epoch "
         f"(<= {limit} frames a batch); rank {args.rank} scaling {args.scaling} "
-        f"lr {args.lr}"
+        f"lr {args.lr} mem cap {args.mem_cap_gib} GiB"
     )
 
     base = load_base(args.base)
@@ -253,6 +269,7 @@ def main() -> None:
                     "rank": args.rank,
                     "scaling": args.scaling,
                     "lr": args.lr,
+                    "mem_cap_gib": args.mem_cap_gib,
                 },
                 resume={"opt": opt.state_dict(), "rng": capture_rng(rng)},
             )

@@ -21,6 +21,7 @@ from typing import Any
 import torch
 
 from dual.kl import AnswerKL, answer_kl, bar, log_probs
+from dual.model import MEM_CAP_GIB
 
 RENDERINGS = ("typed", "A", "B", "C", "tape")
 # (key, p, q): KL(p || q)
@@ -39,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--base", required=True)
     p.add_argument("--render", default="render-1")
     p.add_argument("--run", default=None, help="a train run's name; none = bare")
+    p.add_argument(
+        "--mem-cap-gib",
+        type=float,
+        default=MEM_CAP_GIB,
+        help="cap this process's GPU memory; 0 disables the cap",
+    )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--eager", action="store_true", help="no torch.compile")
     mode.add_argument("--compile", action="store_true", help="torch.compile")
@@ -111,6 +118,7 @@ def main() -> None:
         EAGER_DEFAULT,
         adapter_setup,
         attach_lora,
+        cap_gpu_memory,
         load_base,
         load_blob_adapters,
         read_blob,
@@ -119,6 +127,7 @@ def main() -> None:
 
     args = parse_args()
     set_compile_mode(args.eager or (EAGER_DEFAULT and not args.compile))
+    cap_gpu_memory(args.mem_cap_gib)
     root = pathlib.Path.cwd() / "runs"
     render = root / args.render / "render"
     records = [
