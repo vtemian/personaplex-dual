@@ -1870,7 +1870,7 @@ decision epoch is at most the mean of the two seeds' median content gaps at thei
 epochs. Otherwise the verdict becomes **"down, floor inflated"**: the ratio fell without the
 gap falling, so it fell through the floor. The bar is gap <= floor, so a recipe whose ratio
 falls only because the floor grows does not move toward it. (A floor test such as 1.5 x the
-seeds' floor is too loose: with R0 about 3.12 and T = 0.5, a variant with an unchanged gap
+seeds' floor is too loose: with R0 estimated at about 3.12 before the results; it came out at 3.00 and T = 0.5, a variant with an unchanged gap
 clears T on about 1.19 x floor growth.) The gate does not count it as moved. A p90 ratio
 (read at the decision epoch) that contradicts the median verdict is reported beside it, but
 it does not change the verdict.
@@ -2034,3 +2034,10 @@ Contents, in ladder-1.md's style:
 
 Commit `docs: ladder 2, rank and LR at 117 dialogues, three epochs, two seeds`, merge
 `--no-ff`, then finish with `GATE` (B6.0.2's two branches).
+
+### B6 as run (2026-11-03 to 11-04)
+
+- **Images:** s1, lr5e-6, lr1e-4 and r64 ran on `ladder2:5a2d32e`. r4 ran on `ladder2:a800c4c`, which is the same train and measure code plus `--mem-cap-gib 64` and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, in `cap_gpu_memory` in `src/dual/model.py`.
+- **Smoke:** `ladder2-smoke-r4` (slice 8, 1 epoch, rank 4) ran to the end and was measured, to prove that the attach and the measure work at a non-default rank.
+- **The freeze:** the first r4 train froze the box (`NVRM NV_ERR_NO_MEMORY`) on 11-04 at 14:52. drama3 had been restarted by someone and was running beside it. Vlad power-cycled the box, and r4 was rerun from scratch with the cap. The cap bounds PyTorch's allocator only, so GPU runs still need drama3 down. A Mac-side watchdog stopped drama3 during the rerun if it reappeared.
+- **The verdict rule** was changed twice before any result: R_gap decides, then the gap guard. See B6.0.2. The results are in `docs/results/ladder-2.md`.
