@@ -66,3 +66,7 @@ noise:
 EPOCH ?= 2
 sidebyside:
 	sh scripts/submit.sh $(NAME) sidebyside --name $(NAME) --base $(BASE) --render $(RENDER) $(if $(RUN),--run $(RUN) --epoch $(EPOCH),) $(ARGS)
+
+.PHONY: position
+position:
+	PYTHONPATH=src uv run python -m dual.position $(FILES)
