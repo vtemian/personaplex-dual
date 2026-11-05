@@ -55,17 +55,27 @@ def test_similarity():
 
 
 def test_pair_stats():
+    # two silent answers are not an agreement: counted apart, left out of the rates
     s = pair_stats(ROWS, "bare", "typed", "A")
     assert s["n"] == 2
-    assert s["exact"] == 2
+    assert s["both_empty"] == 1 and s["one_empty"] == 0 and s["said"] == 1
+    assert s["exact"] == 1
     assert s["exact_rate"] == 1.0
     assert s["empty_p"] == 1 and s["empty_q"] == 1
-    assert s["sim_ge_0_8"] == 2
+    assert s["sim_ge_0_8"] == 1
     t = pair_stats(ROWS, "bare", "typed", "B")
+    assert t["both_empty"] == 0 and t["one_empty"] == 1 and t["said"] == 2
     assert t["exact"] == 0 and t["median_sim"] == pytest.approx(
         (similarity("A half.", "something else entirely") + 0.0) / 2
     )
     assert t["empty_p"] == 1 and t["empty_q"] == 0
+
+
+def test_pair_stats_all_silent():
+    rows = [row("m", "s", 0, "typed", ""), row("m", "s", 0, "A", "")]
+    s = pair_stats(rows, "m", "typed", "A")
+    assert s["n"] == 1 and s["both_empty"] == 1 and s["said"] == 0
+    assert s["exact"] == 0 and s["exact_rate"] == 0.0 and s["median_sim"] == 0.0
 
 
 def test_pair_stats_none():
@@ -82,9 +92,11 @@ def test_duplicates_raise():
 
 def test_stats_table():
     out = stats_table(ROWS, ["bare", "trained"]).splitlines()
-    assert out[0].startswith("| model | pair | n | exact | exact rate")
+    assert out[0].startswith(
+        "| model | pair | n | both silent | one silent | exact | exact rate"
+    )
     assert len(out) == 2 + 6
-    assert "| bare | typed vs A | 2 | 2 | 1.00 |" in out[2]
+    assert "| bare | typed vs A | 2 | 1 | 0 | 1 | 1.00 |" in out[2]
 
 
 def test_turn_blocks():

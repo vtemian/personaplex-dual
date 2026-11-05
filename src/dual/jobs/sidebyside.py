@@ -64,6 +64,10 @@ def parse_args() -> argparse.Namespace:
         p.error("--run and --epoch go together")
     if args.no_bare and args.run is None:
         p.error("--no-bare needs --run")
+    if args.compile and args.run is not None:
+        # compiled, bare takes moshi's fused gating kernel and an adapted model the
+        # generic path (LoRALinear is no nn.Linear): the two would differ by kernel
+        p.error("--compile with --run: bare and adapted gating would take two kernels")
     return args
 
 
@@ -322,6 +326,12 @@ def main() -> None:
         lora = [p for n, p in base.lm.named_parameters() if ".lora_" in n]
         for p in lora:
             p.data = p.data.to(torch.bfloat16)
+        from training.moshi.trunk_lora import unmoved, wrappers
+
+        if len(wrappers(base.lm)) != 128 or unmoved(base.lm):
+            raise RuntimeError(f"{ckpt}: adapters missing or zero after loading")
+        norm = float(sum(float(p.float().norm()) ** 2 for p in lora) ** 0.5)
+        print(f"adapters: {len(lora)} tensors, norm {norm:.3f}")
         go(
             "trained",
             {
@@ -329,6 +339,7 @@ def main() -> None:
                 "epoch": args.epoch,
                 "ckpt": str(ckpt),
                 "run_meta": blob.get("run", {}),
+                "adapter_norm": norm,
                 "adapter_meta": blob["meta"],
             },
         )

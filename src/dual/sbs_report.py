@@ -22,6 +22,8 @@ STATS_COLUMNS = (
     "model",
     "pair",
     "n",
+    "both silent",
+    "one silent",
     "exact",
     "exact rate",
     "median similarity",
@@ -61,16 +63,21 @@ def pair_stats(
         for (m, s, t, rd) in idx
         if m == model and rd == p and (m, s, t, q) in idx
     ]
-    sims = [similarity(a, b) for a, b in answers]
-    exact = sum(words_of(a) == words_of(b) for a, b in answers)
-    n = len(answers)
+    # Two silent answers are not an agreement in what was said: counted apart, and
+    # the exact and similarity figures are over the pairs where at least one spoke.
+    said = [(a, b) for a, b in answers if words_of(a) or words_of(b)]
+    sims = [similarity(a, b) for a, b in said]
+    exact = sum(words_of(a) == words_of(b) for a, b in said)
     return {
         "model": model,
         "p": p,
         "q": q,
-        "n": n,
+        "n": len(answers),
+        "both_empty": len(answers) - len(said),
+        "one_empty": sum(not words_of(a) or not words_of(b) for a, b in said),
+        "said": len(said),
         "exact": exact,
-        "exact_rate": exact / n if n else 0.0,
+        "exact_rate": exact / len(said) if said else 0.0,
         "median_sim": statistics.median(sims) if sims else 0.0,
         "sim_ge_0_8": sum(s >= 0.8 for s in sims),
         "empty_p": sum(not words_of(a) for a, _ in answers),
@@ -94,6 +101,8 @@ def stats_table(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
                     m,
                     f"{p} vs {q}",
                     str(s["n"]),
+                    str(s["both_empty"]),
+                    str(s["one_empty"]),
                     str(s["exact"]),
                     f"{s['exact_rate']:.2f}",
                     f"{s['median_sim']:.2f}",
