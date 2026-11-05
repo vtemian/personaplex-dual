@@ -2056,3 +2056,38 @@ Vlad, at the ladder-2 gate: "ok, do the side by side check first". The request: 
   - About 84 GPU-minutes in all.
   - Blind substance labels by model judges.
 - **Results:** `docs/results/side-by-side-1.md`. Typed vs A differs in substance in 21/65 turns and A vs B in 23/65. The same row in another batch shape differs in 6/30. The tutor takes up the pupil's turn after 65/65 typed turns and 61/65 for each voice. The one systematic difference is onset: after A or B the trained model starts 2-3 frames early (frame 0 in 52/65), while after typed it starts on the tape's frame 3 in 65/65. That shows on PAD frames, which the content bar skips (all-frame gap/floor ~19). Untested: how much of the content-frame ~3 is this onset.
+
+## Batch B8: the bar by position in the answer (2026-11-05)
+
+Vlad, at the side-by-side gate: "Re-check the bar (Recommended). Cheap first: one measure pass on epoch 2 (no training) reporting KL by position in the answer, to see if the gap sits in the opening frames. Then decide whether to change the bar."
+
+The question: B7 found that after A or B the trained model starts 2-3 frames earlier than after typed (or tape). The bar's content mean skips PAD targets, so most of that onset is hidden from it (all-frame gap/floor ~19, content ~3). How much of the content ratio of ~3 is still the opening? The measure job keeps only per-turn means, so B8 adds per-frame output and one pass. No training, no bar change.
+
+**Position.** In the answer window `[start, end)` from `holdout_row`, let `f0` be the first frame whose target text is not PAD. A frame's position is `i - f0`. Buckets: `lead` (position < 0, the silence before the tutor's first word, where the onset shows), `0`, `1`, `2`, `3-5`, `6-10`, `11-25`, `26+`. The targets are the tape's teacher text in every rendering (measure asserts this), so positions are the same for every pair.
+
+### Task B8.1: `src/dual/position.py` and `make position` (TDD, pure: numpy, no torch)
+
+- `BUCKETS`, `bucket(pos) -> str`, `positions(content_mask) -> list[int]`. A mask with no content frame raises.
+- `turn_means(per_frame, content_mask, *, content_only) -> dict[bucket, float | None]`: one turn's mean KL per bucket, or None if the bucket has no frames. With `content_only`, PAD frames are dropped. `lead` is all PAD, so it is None there.
+- `bucket_table(lines, mode)`: one row per bucket. Columns: turns with frames, frames, median over turns of the per-turn bucket mean for gap, floor and door, the ratio median gap / median floor, and each bucket's share of the pooled gap and floor KL mass (sum over frames in the bucket over the sum over all frames in that mode).
+- `bar_from(lines, min_pos, mode)`: the bar (median/p90 gap and floor, ratio) on per-turn means over frames with position >= `min_pos`, for `min_pos` in (all, 0, 1, 2, 3, 6, 11). Content mode with `min_pos` 0 equals the existing content bar, and all mode with no cut equals the all-frame bar. Tests pin both identities.
+- `python -m dual.position FILE...` prints markdown for each `epoch-NN.jsonl`. Make target: `make position FILES=...`.
+
+### Task B8.2: the measure job writes per-frame KL (TDD on the pure parts)
+
+- Each line gains `content_mask` (0/1 per answer frame) and `per_frame`: `{pair: [KL per frame, 6 significant digits]}` for the five pairs. The existing fields are unchanged.
+- `--epochs N [N ...]` measures only those checkpoints. It is ignored when bare.
+- `--tag T` appends `-T` to the output label, so a partial pass never overwrites a full run's `summary.json` under `runs/measure/` (`make bar` merges every `measure-*` dir by label).
+
+### Task B8.3: run it (the orchestrator)
+
+One image from the branch head. Jobs:
+
+- `make measure NAME=b8-pos-pp RUN=ladder-personaplex-1 ARGS='--epochs 2 --tag pos'`
+- `make measure NAME=b8-pos-bare ARGS='--tag pos'` (control)
+
+Each takes about 24 min, with drama3 stopped. Check that the epoch-2 content and all bars equal ladder-1's epoch-2 numbers (same code path, same checkpoint), and that `bar_from` reproduces them.
+
+### Task B8.4: `docs/results/bar-by-position-1.md`
+
+The bucket tables (content and all frames) and the bar-from-position table, for epoch 2 and bare. Then one paragraph answering "does the gap sit in the opening frames?", and what follows for the bar: which frames a fair bar scores, and whether the TTS onset should be aligned to the recorded pupil onset instead. Finish with a GATE.
