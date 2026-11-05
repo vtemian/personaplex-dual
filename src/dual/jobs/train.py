@@ -13,7 +13,7 @@ from typing import Any
 import torch
 from sparks.emit import track
 
-from dual.kl import DIRECTIONS
+from dual.kl import DIRECTIONS, consistency_loss, log_probs
 from dual.ladder import rung
 from dual.model import (
     EAGER_DEFAULT,
@@ -82,8 +82,19 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def losses(lm: Any, batch: list[dict[str, Any]]) -> tuple[torch.Tensor, torch.Tensor]:
-    """Text and audio CE over scored frames only. Rows are padded to the longest;
+Teacher = tuple[
+    torch.Tensor, torch.Tensor
+]  # typed-row frame index [N], log-probs [N, V]
+
+
+def losses(
+    lm: Any,
+    batch: list[dict[str, Any]],
+    teachers: dict[int, Teacher] | None = None,
+    direction: str = "bar",
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Text and audio CE over scored frames only, and the consistency KL of each typed
+    answer toward its teacher (zero without teachers). Rows are padded to the longest;
     padding is unscored. NaN logits at moshi's masked frames are excluded by index,
     never multiplied."""
     from dual.model import codes_from_row, forward
@@ -111,7 +122,49 @@ def losses(lm: Any, batch: list[dict[str, Any]]) -> tuple[torch.Tensor, torch.Te
     audio = torch.nn.functional.cross_entropy(
         out.audio_logits[audio_keep], audio_target[audio_keep]
     )
-    return text, audio
+    students: list[torch.Tensor] = []
+    targets: list[torch.Tensor] = []
+    for i, (idx, lp) in (teachers or {}).items():
+        keep = out.text_mask[i, idx]
+        students.append(out.text_logits[i, idx[keep]])
+        targets.append(lp[keep])
+    if students:
+        cons = consistency_loss(torch.cat(students), torch.cat(targets), direction)
+    else:
+        cons = out.text_logits.new_zeros(())
+    return text, audio, cons
+
+
+def build_teachers(
+    lm: Any, batch: list[dict[str, Any]], spoken: dict[str, dict[str, Any]]
+) -> dict[int, Teacher]:
+    """For each typed row of the batch (by position), the frame indices of its answer
+    content frames and the model's own text log-probs at the same frames after the
+    spoken (all-tape) rendering of its stem: a no_grad forward with the current adapter,
+    one stem at a time, so a single spoken forward is alive at once."""
+    from dual.consistency import answer_pairs, flat_indices
+    from dual.model import codes_from_row, forward
+
+    out: dict[int, Teacher] = {}
+    have: tuple[str, Any] | None = None
+    with torch.no_grad():
+        for i in sorted(range(len(batch)), key=lambda j: str(batch[j]["stem"])):
+            row = batch[i]
+            if not row.get("typed_turns"):
+                continue
+            stem = row["stem"]
+            student, teacher = flat_indices(answer_pairs(row, spoken[stem]))
+            if not student:
+                continue
+            if have is None or have[0] != stem:
+                have = None  # drop the previous stem's logits first
+                have = (stem, forward(lm, codes_from_row(spoken[stem])))
+            t = have[1]
+            s_idx = torch.tensor(student, device=t.text_logits.device)
+            t_idx = torch.tensor(teacher, device=t.text_logits.device)
+            keep = t.text_mask[0, t_idx]
+            out[i] = (s_idx[keep], log_probs(t.text_logits[0, t_idx[keep]]))
+    return out
 
 
 def batches(
@@ -276,7 +329,7 @@ def main() -> None:
             norms: list[float] = []
             totals: list[float] = []
             for i, batch in enumerate(batches(rows, rng, limit)):
-                text, audio = losses(lm, batch)
+                text, audio, _ = losses(lm, batch)
                 loss = TEXT_WEIGHT * text + AUDIO_WEIGHT * audio
                 opt.zero_grad(set_to_none=True)
                 loss.backward()  # type: ignore[no-untyped-call]
