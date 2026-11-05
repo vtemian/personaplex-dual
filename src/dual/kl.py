@@ -23,6 +23,32 @@ def kl_per_frame(lp_p: torch.Tensor, lp_q: torch.Tensor) -> torch.Tensor:
     return (lp_p.exp() * (lp_p - lp_q)).sum(-1)
 
 
+DIRECTIONS = ("bar", "forward")
+
+
+def consistency_loss(
+    student_logits: torch.Tensor, teacher_lp: torch.Tensor, direction: str = "bar"
+) -> torch.Tensor:
+    """Mean per-frame KL between the student's text distribution and a fixed teacher's.
+
+    student_logits [N, V] (gradient flows); teacher_lp [N, V] log-probs, detached here.
+    "bar": KL(student || teacher), the bar's own direction (gap = KL(typed || A)).
+    "forward": KL(teacher || student). No frames: a zero that still backpropagates."""
+    if direction not in DIRECTIONS:
+        raise ValueError(f"direction {direction!r}: one of {DIRECTIONS}")
+    if student_logits.shape != teacher_lp.shape:
+        raise ValueError(
+            f"shapes {tuple(student_logits.shape)} vs {tuple(teacher_lp.shape)}"
+        )
+    if student_logits.shape[0] == 0:
+        return student_logits.float().sum() * 0.0
+    lp_s = log_probs(student_logits)
+    lp_t = teacher_lp.detach().float()
+    if direction == "bar":
+        return kl_per_frame(lp_s, lp_t).mean()
+    return kl_per_frame(lp_t, lp_s).mean()
+
+
 @dataclass(frozen=True)
 class AnswerKL:
     content: float  # mean over frames whose target text is not PAD

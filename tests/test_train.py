@@ -2,7 +2,14 @@ import random
 
 import pytest
 
-from dual.jobs.train import batches, check_resume_lr, parse_args
+from dual.jobs.train import (
+    batches,
+    check_resume_consistency,
+    check_resume_lr,
+    parse_args,
+    select_rows,
+    widest_first,
+)
 
 
 def rows(*frames):
@@ -141,3 +148,79 @@ def test_resume_refuses_a_different_lr():
         check_resume_lr({"lr": 2e-5}, 1e-4)
     with pytest.raises(ValueError, match="lr"):
         check_resume_lr({}, 1e-4)
+
+
+def test_consistency_flags_default_to_off(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["train", "--name", "n", "--base", "b"])
+    a = parse_args()
+    assert (a.consistency, a.consistency_dir) == (0.0, "bar")
+    assert (a.only_stem, a.max_steps, a.widest_first) == (None, 0, False)
+
+
+def test_consistency_flags_are_parsed(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "train",
+            "--name",
+            "n",
+            "--base",
+            "b",
+            "--consistency",
+            "10",
+            "--consistency-dir",
+            "forward",
+            "--only-stem",
+            "longest",
+            "--max-steps",
+            "3",
+            "--widest-first",
+        ],
+    )
+    a = parse_args()
+    assert (a.consistency, a.consistency_dir) == (10.0, "forward")
+    assert (a.only_stem, a.max_steps, a.widest_first) == ("longest", 3, True)
+
+
+def test_a_negative_weight_is_refused(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv", ["train", "--name", "n", "--base", "b", "--consistency", "-1"]
+    )
+    with pytest.raises(SystemExit):
+        parse_args()
+
+
+def test_resume_accepts_the_same_consistency_and_an_older_checkpoint():
+    check_resume_consistency(
+        {"consistency": 10.0, "consistency_dir": "bar"}, 10.0, "bar"
+    )
+    check_resume_consistency({"epoch": 1}, 0.0, "bar")  # predates the flag: off
+
+
+def test_resume_refuses_another_consistency_setup():
+    with pytest.raises(ValueError, match="consistency"):
+        check_resume_consistency({"consistency": 10.0}, 3.0, "bar")
+    with pytest.raises(ValueError, match="consistency"):
+        check_resume_consistency({"consistency": 10.0}, 10.0, "forward")
+
+
+def test_select_rows_keeps_one_stem_or_the_longest():
+    rs = [
+        {"stem": "a", "frames": 5},
+        {"stem": "b", "frames": 9},
+        {"stem": "b", "frames": 2},
+    ]
+    assert select_rows(rs, None) == rs
+    assert select_rows(rs, "a") == [rs[0]]
+    assert select_rows(rs, "longest") == [rs[1], rs[2]]
+    with pytest.raises(ValueError, match="no rows"):
+        select_rows(rs, "zzz")
+
+
+def test_widest_first_orders_batches_by_padded_frames():
+    bs = [[{"frames": 10}] * 3, [{"frames": 100}], [{"frames": 40}] * 2]
+    assert [len(b) * max(r["frames"] for r in b) for b in widest_first(bs)] == [
+        100,
+        80,
+        30,
+    ]
