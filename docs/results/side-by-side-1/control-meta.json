@@ -1,0 +1,88 @@
+{
+ "args": {
+  "name": "sbs-1-ctl",
+  "base": "personaplex",
+  "render": "render-1",
+  "run": "ladder-personaplex-1",
+  "epoch": 2,
+  "no_bare": true,
+  "limit": 10,
+  "budget": 48000,
+  "max_batch": 5,
+  "mem_cap_gib": 64.0,
+  "compile": false
+ },
+ "models": {
+  "trained": {
+   "run": "ladder-personaplex-1",
+   "epoch": 2,
+   "ckpt": "/srv/spark/runs/ladder-personaplex-1/train/model-epoch-02.pt",
+   "run_meta": {
+    "epoch": 2,
+    "slice": 1,
+    "render": "render-1",
+    "seed": 0,
+    "name": "ladder-personaplex-1"
+   },
+   "adapter_norm": 27.316145226928732,
+   "adapter_meta": {
+    "base": "personaplex",
+    "rank": 16,
+    "scaling": 2.0,
+    "params": 34078720
+   },
+   "seconds": 853.3776007269917,
+   "batches": [
+    {
+     "batch": 0,
+     "items": 5,
+     "steps": 522,
+     "cap": 576,
+     "seconds": 44.32935888200882,
+     "build_seconds": 0.016573742002947256
+    },
+    {
+     "batch": 1,
+     "items": 5,
+     "steps": 905,
+     "cap": 960,
+     "seconds": 80.6661353870004,
+     "build_seconds": 0.08140672800072934
+    },
+    {
+     "batch": 2,
+     "items": 5,
+     "steps": 1303,
+     "cap": 1344,
+     "seconds": 121.8353021810035,
+     "build_seconds": 0.14592340899980627
+    },
+    {
+     "batch": 3,
+     "items": 5,
+     "steps": 1733,
+     "cap": 1792,
+     "seconds": 172.6075392960047,
+     "build_seconds": 0.20027914700040128
+    },
+    {
+     "batch": 4,
+     "items": 5,
+     "steps": 2059,
+     "cap": 2112,
+     "seconds": 211.97056230099406,
+     "build_seconds": 0.2563404210086446
+    },
+    {
+     "batch": 5,
+     "items": 5,
+     "steps": 2134,
+     "cap": 2176,
+     "seconds": 220.93270709499484,
+     "build_seconds": 0.3153794140089303
+    }
+   ],
+   "peak_gib": 21.04454231262207
+  }
+ }
+}
