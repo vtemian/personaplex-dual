@@ -150,7 +150,11 @@ def test_main_smoke_runs_the_term_and_writes_no_checkpoint(job, capsys):
     out = job.run("--consistency", "10", "--max-steps", "2", "--epochs", "1")
     log = capsys.readouterr().out
     assert "typed rows 2, answer pairs 3, content frames 13" in log
-    assert "smoke: 2 steps, peak mem 0.0 GiB; no checkpoint written" in log
+    assert (
+        "smoke: 2 steps, peak mem 0.0 GiB (reserved 0.0 GiB); no checkpoint written"
+        in log
+    )
+    assert "dynamo: " in log
     assert job.calls  # the teacher ran
     assert list(out.glob("*.pt*")) == []
     assert job.lm.c.grad is not None

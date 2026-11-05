@@ -128,6 +128,7 @@ def test_consistency_on_no_frames_is_zero_and_backpropagates():
     out = consistency_loss(s, torch.zeros(0, 7))
     out.backward()
     assert float(out.detach()) == 0.0
+    assert s.grad is not None and s.grad.shape == (0, 7)
 
 
 def test_consistency_refuses_bad_shapes_and_directions():
