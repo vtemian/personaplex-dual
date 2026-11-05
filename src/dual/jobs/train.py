@@ -13,6 +13,7 @@ from typing import Any
 import torch
 from sparks.emit import track
 
+from dual.kl import DIRECTIONS
 from dual.ladder import rung
 from dual.model import (
     EAGER_DEFAULT,
@@ -52,10 +53,33 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--resume", action="store_true", help="continue from the latest epoch"
     )
+    p.add_argument(
+        "--consistency",
+        type=float,
+        default=0.0,
+        help="weight of KL(typed answer || spoken answer); 0 = the baseline recipe",
+    )
+    p.add_argument("--consistency-dir", choices=DIRECTIONS, default="bar")
+    p.add_argument(
+        "--only-stem",
+        default=None,
+        help="train on one stem's rows only ('longest' = the stem of the longest row)",
+    )
+    p.add_argument(
+        "--max-steps", type=int, default=0, help="stop after N steps, no checkpoint"
+    )
+    p.add_argument(
+        "--widest-first",
+        action="store_true",
+        help="run the batches with the most padded frames first (smoke)",
+    )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--eager", action="store_true", help="no torch.compile")
     mode.add_argument("--compile", action="store_true", help="torch.compile")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.consistency < 0:
+        p.error(f"--consistency {args.consistency}: must be >= 0")
+    return args
 
 
 def losses(lm: Any, batch: list[dict[str, Any]]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -117,6 +141,38 @@ def check_resume_lr(run_meta: dict[str, Any], lr: float) -> None:
     had = float(run_meta.get("lr", LR))
     if had != lr:
         raise ValueError(f"--resume: checkpoint ran at lr {had}, --lr is {lr}")
+
+
+def check_resume_consistency(
+    run_meta: dict[str, Any], consistency: float, direction: str
+) -> None:
+    """--resume keeps the recipe: the same weight and direction. A checkpoint without
+    the keys predates B9 and ran without the term."""
+    had = float(run_meta.get("consistency", 0.0))
+    had_dir = str(run_meta.get("consistency_dir", "bar"))
+    if (had, had_dir) != (consistency, direction):
+        raise ValueError(
+            f"--resume: checkpoint ran at consistency {had} ({had_dir}), "
+            f"flags say {consistency} ({direction})"
+        )
+
+
+def select_rows(rows: list[dict[str, Any]], only: str | None) -> list[dict[str, Any]]:
+    """All rows, or one stem's ('longest': the stem of the longest row)."""
+    from dual.consistency import longest_stem
+
+    if only is None:
+        return rows
+    stem = longest_stem(rows) if only == "longest" else only
+    kept = [r for r in rows if r["stem"] == stem]
+    if not kept:
+        raise ValueError(f"--only-stem {only}: no rows")
+    return kept
+
+
+def widest_first(bs: list[list[dict[str, Any]]]) -> list[list[dict[str, Any]]]:
+    """Batches by padded frames (rows x longest), largest first; stable on ties."""
+    return sorted(bs, key=lambda b: -len(b) * max(r["frames"] for r in b))
 
 
 def refuse_stale(out: pathlib.Path, resume: bool) -> None:
