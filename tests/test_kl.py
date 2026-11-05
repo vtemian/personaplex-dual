@@ -4,7 +4,14 @@ import pytest
 import torch
 
 from dual.constants import PAD
-from dual.kl import answer_kl, bar, kl_per_frame, log_probs
+from dual.kl import (
+    DIRECTIONS,
+    answer_kl,
+    bar,
+    consistency_loss,
+    kl_per_frame,
+    log_probs,
+)
 
 
 def lp(*rows: list[float]) -> torch.Tensor:
@@ -84,3 +91,48 @@ def test_bar_percentile_is_numpys_linear_interpolation():
     got = bar([1, 2, 3, 4, 5], [1, 2, 3, 4, 5])
     assert got.median_gap == 3
     assert got.p90_gap == pytest.approx(4.6)
+
+
+def _logits(seed: int, n: int = 5, v: int = 11) -> torch.Tensor:
+    g = torch.Generator().manual_seed(seed)
+    return torch.randn(n, v, generator=g)
+
+
+def test_consistency_is_zero_when_student_equals_teacher():
+    x = _logits(0)
+    assert float(consistency_loss(x, log_probs(x))) == 0.0
+
+
+def test_consistency_bar_direction_is_the_bars_kl():
+    s, t = _logits(1), _logits(2)
+    want = kl_per_frame(log_probs(s), log_probs(t)).mean()
+    assert torch.allclose(consistency_loss(s, log_probs(t), "bar"), want)
+
+
+def test_consistency_forward_direction_swaps_the_arguments():
+    s, t = _logits(1), _logits(2)
+    want = kl_per_frame(log_probs(t), log_probs(s)).mean()
+    assert torch.allclose(consistency_loss(s, log_probs(t), "forward"), want)
+
+
+def test_consistency_gradient_reaches_the_student_only():
+    s = _logits(3).requires_grad_(True)
+    t_logits = _logits(4).requires_grad_(True)
+    consistency_loss(s, log_probs(t_logits)).backward()
+    assert s.grad is not None and float(s.grad.abs().sum()) > 0
+    assert t_logits.grad is None
+
+
+def test_consistency_on_no_frames_is_zero_and_backpropagates():
+    s = torch.zeros(0, 7, requires_grad=True)
+    out = consistency_loss(s, torch.zeros(0, 7))
+    out.backward()
+    assert float(out.detach()) == 0.0
+
+
+def test_consistency_refuses_bad_shapes_and_directions():
+    with pytest.raises(ValueError, match="shapes"):
+        consistency_loss(_logits(0, n=3), log_probs(_logits(1, n=4)))
+    with pytest.raises(ValueError, match="direction"):
+        consistency_loss(_logits(0), log_probs(_logits(1)), "reverse")
+    assert DIRECTIONS == ("bar", "forward")
