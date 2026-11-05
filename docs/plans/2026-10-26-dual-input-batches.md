@@ -2091,3 +2091,16 @@ Each takes about 24 min, with drama3 stopped. Check that the epoch-2 content and
 ### Task B8.4: `docs/results/bar-by-position-1.md`
 
 The bucket tables (content and all frames) and the bar-from-position table, for epoch 2 and bare. Then one paragraph answering "does the gap sit in the opening frames?", and what follows for the bar: which frames a fair bar scores, and whether the TTS onset should be aligned to the recorded pupil onset instead. Finish with a GATE.
+
+### B8 as run (2026-11-05)
+
+- **Code:** B8.1 (`dual.position`, `make position`) and B8.2 (measure writes `content_mask` and `per_frame`, and takes `--epochs` and `--tag`) as specified. Review found that `dual.report.read` refused the tagged passes as duplicate (run, base, epoch) summaries. It now skips a `<base>[-<run>]-<tag>` dir.
+- **Jobs:**
+  - Image `b8pos:d80113b`.
+  - `measure-b8-pos-pp` (epoch 2, 1,456 s) and `measure-b8-pos-bare` (231 s), with drama3 stopped throughout.
+  - Epoch 2 reproduced ladder 1's numbers to bf16 drift.
+- **Result** (`docs/results/bar-by-position-1.md`):
+  - The all-frame ratio of ~18 is the 3 lead PAD frames before the first word: about 7 nats per frame of typed‖A, 81% of the all-frame gap mass. Without them the all-frame ratio is 3.2.
+  - On content frames the ratio is ~3 from every starting position (3.10-3.30), and 3.44 at position 26+.
+  - typed‖tape on content frames equals typed‖A, so aligning the TTS onset is predicted not to move the bar.
+  - The gap does not sit in the opening frames.
