@@ -450,7 +450,7 @@ def test_ladder_1_rejects_a_ladder_2_run_name(box):
 
 
 def test_unknown_ladder_exits_2(box):
-    r, log = box(LADDER="3")
+    r, log = box(LADDER="9")
     assert r.returncode == 2
     assert "LADDER" in r.stdout + r.stderr
     assert submits(log) == []
@@ -486,3 +486,29 @@ def test_ladder_2_train_carries_exactly_one_args_word(box, tmp_path):
         words = [w for w in call if w.startswith("ARGS=")]
         assert words == [f"ARGS={args}"]
     assert "ARGS=--rank 64 --scaling 0.5" in trains[3]
+
+
+def test_ladder_3_submits_the_pilot_then_its_measure(box):
+    r, log = box(LADDER="3")
+    assert r.returncode == 0, r.stderr
+    assert submits(log) == [
+        "make IMAGE=img:tag -s train NAME=cons1-pp-l10 BASE=personaplex SLICE=1"
+        " RENDER=render-1 EPOCHS=3 ARGS=--consistency 10",
+        "make IMAGE=img:tag -s measure NAME=cons1-pp-l10 BASE=personaplex"
+        " RUN=cons1-pp-l10 RENDER=render-1",
+    ]
+    assert " bar BOX=vlad@box" in log[-1]
+
+
+def test_ladder_3_train_carries_exactly_one_args_word(box, tmp_path):
+    r, _ = box(LADDER="3")
+    assert r.returncode == 0, r.stderr
+    (train,) = [c for c in argv_calls(tmp_path) if "train" in c]
+    assert [w for w in train if w.startswith("ARGS=")] == ["ARGS=--consistency 10"]
+
+
+def test_ladder_3_rejects_a_ladder_2_run_name(box):
+    r, log = box(LADDER="3", FROM="ladder2-pp-s1")
+    assert r.returncode == 2
+    assert "cons1-pp-l10" in r.stdout + r.stderr
+    assert submits(log) == []

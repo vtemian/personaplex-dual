@@ -59,8 +59,10 @@ bar:
 	PYTHONPATH=src uv run python -m dual.report runs/ > docs/results/bar.md && cat docs/results/bar.md
 
 .PHONY: noise
+NOISE_SEEDS ?= personaplex-ladder-personaplex-1 personaplex-ladder2-pp-s1
+VARIANTS ?= personaplex-ladder2-pp-lr5e-6 personaplex-ladder2-pp-lr1e-4 personaplex-ladder2-pp-r64 personaplex-ladder2-pp-r4
 noise:
-	PYTHONPATH=src uv run python -m dual.noise runs/ --seeds personaplex-ladder-personaplex-1 personaplex-ladder2-pp-s1 --variants personaplex-ladder2-pp-lr5e-6 personaplex-ladder2-pp-lr1e-4 personaplex-ladder2-pp-r64 personaplex-ladder2-pp-r4
+	PYTHONPATH=src uv run python -m dual.noise runs/ --seeds $(NOISE_SEEDS) --variants $(VARIANTS)
 
 .PHONY: sidebyside
 EPOCH ?= 2
