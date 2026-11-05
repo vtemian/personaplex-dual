@@ -223,7 +223,8 @@ def main() -> None:
             load_blob_adapters(base, blob)
             epoch, slice_ = int(meta["epoch"]), meta.get("slice")
             want = int(_CKPT.search(ckpt.name).group(1))  # type: ignore[union-attr]
-            assert epoch == want, f"{ckpt.name}: meta epoch {epoch}"
+            if epoch != want:
+                raise SystemExit(f"{ckpt.name}: meta epoch {epoch}")
         with torch.no_grad():
             lines = turn_lines(base.lm, records, epoch)
         with (out / f"epoch-{epoch:02d}.jsonl").open("w") as f:

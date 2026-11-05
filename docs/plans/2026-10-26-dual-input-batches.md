@@ -2101,6 +2101,15 @@ The bucket tables (content and all frames) and the bar-from-position table, for 
   - Epoch 2 reproduced ladder 1's numbers to bf16 drift.
 - **Result** (`docs/results/bar-by-position-1.md`):
   - The all-frame ratio of ~18 is the 3 lead PAD frames before the first word: about 7 nats per frame of typed‖A, 81% of the all-frame gap mass. Without them the all-frame ratio is 3.2.
-  - On content frames the ratio is ~3 from every starting position (3.10-3.30), and 3.44 at position 26+.
-  - typed‖tape on content frames equals typed‖A, so aligning the TTS onset is predicted not to move the bar.
-  - The gap does not sit in the opening frames.
+  - On content frames the opening is the closest to the floor: ratio 3.7, 2.5, 1.3, 2.0 and 1.8 at positions 0 to 10, and 1.30 frame-weighted. The ~3 sits in the body of the answer: 3.4 at 26+.
+  - The floor is front-loaded, so cutting the opening makes p90 worse. No cut passes.
+  - From position 26 on, typed‖tape (0.0174) equals typed‖A (0.0176), while tape‖A (0.0069) is near the floor (0.0051). The gap is typed against any speech.
+  - Trimming the TTS trailing silence is predicted not to lower the gap. Its effect on the floor is unmeasured.
+  - The opus review corrected the first reading ("flat", "onset alignment").
+- **Reviews:**
+  - Sonnet reviewed the measure diff and then the batch.
+  - Opus reviewed before the merge and recomputed every number from the jsonl.
+  - Follow-ups:
+    - `dual.position` refuses empty input.
+    - The measure job's epoch check raises instead of asserting.
+    - A test pins that the lead is in the no-cut all-frame bar and out from position 0.

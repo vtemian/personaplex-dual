@@ -4,14 +4,49 @@ Vlad, 2026-11-05, at the side-by-side gate: "Re-check the bar (Recommended). Che
 
 ## The answer
 
-**No. On the frames the bar scores, the gap does not sit in the opening frames. It runs through the whole answer at about 3x the floor.** The opening effect B7 found is real, but it lives entirely in the 3 silent frames before the tutor's first word. The content bar already leaves those out.
+**No. The gap does not sit in the opening frames. On the frames the bar scores, the opening is where typed and spoken agree best. The ~3 sits in the body of the answer, and it is a typed-vs-speech gap: it is just as large against the dialogue's original recorded pupil turn as against the TTS voices.**
 
-- **Lead frames carry the all-frame ratio.** Every answer window opens with exactly 3 PAD frames before the first word (65/65 turns). On those frames, KL(typed‖A) has a median of **7.4 nats per frame**, against a floor of 0.003. They hold **81% of the all-frame gap mass**. Dropping only these 3 frames takes the all-frame ratio from **18.2 to 3.2**, the same as the content bar.
-- **On content frames the ratio is flat.** Starting the bar at content position 0, 1, 2, 3, 6 or 11 gives **3.30, 3.25, 3.12, 3.10, 3.18 and 3.29**. Every one is inside ladder 2's ±0.45 noise on one run's median ratio. 91% of content frames sit at position 26+, with ratio **3.44**, and they hold 60% of the content gap mass. Positions 0-2 hold 7% of it.
-- **The onset belongs to the TTS renderings, not to typed vs spoken.** On the lead frames, typed vs tape (the dialogue's original pupil turn) is 0.02 nats. tape vs A is 7.0, the same as typed vs A. On content frames late in the answer, typed vs tape is **0.0174** against typed vs A at **0.0176** (floor 0.0051). The tape starts on time, and it shows the same content gap as A.
-- **Bare is the contrast.** For bare PersonaPlex, the opening is where typed and spoken differ most: content ratio 82 at position 0, 15 at 1 and 14 at 2. After a spoken turn it stays silent (B7). From position 3 on, its ratio is 3.4-3.9, and its content bar is 3.93. Training at epoch 2 removed the opening difference in the tutor's first words (position 0: 3.7, position 1: 2.5) and left the ~3 through the rest of the answer.
+- **The all-frame ~18 is the 3 lead frames.**
+  - Every answer window opens with exactly 3 PAD frames before the tutor's first word (65/65 turns). The tape's text always opens `<pad><pad><pad><s>`, so this comes from the corpus, not from the window.
+  - On those frames KL(typed‖A) has a median of **7.4 nats per frame**, against a floor of 0.003. They hold **81% of the all-frame gap mass**.
+  - Dropping them takes the all-frame ratio from **18.2 to 3.2**, the content bar's value. The content bar already leaves them out.
+- **On content frames the opening is closest to the floor.**
+  - By bucket, the ratio is **3.7, 2.5, 1.3, 2.0 and 1.8** at positions 0, 1, 2, 3-5 and 6-10. It is **3.4** at 11-25 and **3.4** at 26+.
+  - Frame-weighted, the ratio is **1.30** over positions 0-10 and **3.45** from 26 on.
+  - Per turn, the ratio before position 26 is below the ratio from 26 on in 42/65 turns.
+  - Bucket 2 is a near-deterministic second token: every pair is ~0.0001 nats, in the 36 turns where it is a content frame.
+  - The bar is a median of per-turn means, and 91% of content frames are at 26+. So starting it later barely moves it: from position 0, 1, 2, 3, 6 and 11 it is 3.30, 3.25, 3.12, 3.10, 3.18 and 3.29.
+  - A stem bootstrap gives a 5-95% band of 2.49-3.47 for the content ratio, and -0.15 to +0.95 for the 26+ ratio minus the full ratio.
+- **The floor is front-loaded.**
+  - Positions 0-25 are 9% of content frames, but hold 59% of the content floor mass (A‖B) and only 40% of the gap mass.
+  - So cutting the opening makes the p90 test harder. p90 gap / p90 floor is 1.62 with no cut, 2.98 from position 11 and 3.59 from 26.
+  - No cut makes epoch 2 pass.
+- **The remaining gap is typed against any speech.**
+  - From position 26 on, typed‖tape is **0.0174** and typed‖A is **0.0176**. tape‖A is **0.0069**, near the floor of **0.0051**.
+  - The two spoken renderings, recorded and TTS, nearly agree with each other. Typed differs from both by about 3x.
+- **The lead artifact is the TTS renderings'.**
+  - On the lead frames, typed‖tape is 0.02 nats and tape‖A is 7.0, the same as typed‖A.
+  - B7 traced this to the 6 frames of Mimi silence the TTS renderings add after the voice. That is the pupil turn's end, not the tutor's onset.
+- **Bare is not a reference here.**
+  - Bare PersonaPlex's ratio is 82 at position 0 and 15 at position 1: the teacher-forced probability of the first word token.
+  - From position 3 on, its ratio is 3.4-3.9, and its content bar is 3.93.
+  - At epoch 2, training brought positions 0-1 down to the level of the rest of the answer (3.7 and 2.5). It left the body at ~3.4.
 
-**What follows for the bar.** The content-frame bar is already the fair bar on this question. It skips the lead, where the TTS onset artifact lives, and no later starting position changes it beyond noise. "Score only frames after bucket N" cannot make epoch 2 pass: p90 gap stays above p90 floor at every cut (0.038-0.051 against 0.013-0.031). Aligning the TTS onset to the recorded pupil onset would clean up the lead frames and the all-frame number, which the bar does not use. The tape, which already has the recorded onset, keeps the same content gap. So alignment is predicted not to move the bar. That prediction is drawn from the tape, not measured on re-rendered A and B. The remaining ~3 is a steady, small per-frame difference (0.018 vs 0.005 nats). B7's greedy answers did not show it as a difference in substance (21 vs 23 of 65).
+**What follows for the bar.**
+
+- The content-frame bar is the fairer of the two existing bars on this question. It skips the lead, where the TTS artifact lives.
+- No starting position helps: the median ratio stays ~3, and p90 gets worse.
+- Trimming the TTS renderings' trailing silence to match the tape would clean up the lead frames and the all-frame number, which the bar does not use.
+- Trimming is **predicted not to lower the gap**: typed‖tape already equals typed‖A on content frames.
+- Its effect on the **floor** (A‖B, TTS vs TTS, which sits mostly in the opening content frames) is not measured. tape‖A over all content frames is 0.0136 against a floor of 0.0077, so the voices do differ from the tape, mostly early.
+- B7's greedy answers did not show the ~3 as a difference in substance (typed vs A 21/65, A vs B 23/65).
+
+## Options for the bar (the gate)
+
+1. **Keep the content bar as it is** and treat the ~3 as a real typed-vs-speech gap in the body of the answer. If the target stays "typed is as close to spoken as two voices are", a training change (a consistency or distillation term on the typed answer) has to close it. Ladder 2 showed that rank and LR do not.
+2. **Trim the TTS trailing silence to the tape and remeasure.** A re-render of the holdout plus one measure pass, about 1 GPU-hour. It is predicted to leave the gap and could only move the floor. Do it only if the floor's sensitivity matters for (1) or (3).
+3. **Change the yardstick.** Use tape‖A (recorded vs TTS, 0.0136) instead of A‖B as the floor. The gap is then 1.8x, not 3x. That is defensible ("typed should be as close to speech as two kinds of speech are"), but it is a new bar, decided before any further run.
+4. **Declare epoch 2 good enough and go to the engine,** on B7's behavioural evidence: same substance, uptake 65/65. That accepts a KL bar that has never passed.
 
 ## What was run
 

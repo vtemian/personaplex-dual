@@ -150,7 +150,7 @@ def test_render_and_cli(tmp_path, capsys):
     md = render(lines, "run/epoch-02.jsonl")
     assert md.startswith("### run/epoch-02.jsonl")
     assert md.count("| bucket |") == 2 and "| from position |" in md
-    assert "-" in md
+    assert "| lead | 0 | 0 | - | - | - | - |" in md  # no lead frame in content mode
     d = tmp_path / "run"
     d.mkdir()
     (d / "epoch-02.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
@@ -159,3 +159,15 @@ def test_render_and_cli(tmp_path, capsys):
     with pytest.raises(SystemExit) as e:
         main([])
     assert e.value.code == 2
+
+
+def test_all_mode_keeps_the_lead_with_no_cut_and_drops_it_from_position_0():
+    # 2 lead PAD frames with a large gap, then 2 content frames
+    line = make_line("a", [0, 0, 1, 1], [9.0, 9.0, 1.0, 1.0], [1.0] * 4, [0.0] * 4)
+    assert bar_from([line], None, "all")["median_gap"] == 5.0
+    assert bar_from([line], 0, "all")["median_gap"] == 1.0
+
+
+def test_bucket_table_refuses_no_lines():
+    with pytest.raises(ValueError, match="no lines"):
+        bucket_table([], "content")

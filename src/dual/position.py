@@ -89,6 +89,8 @@ def bucket_table(lines: Lines, mode: str) -> list[dict[str, Any]]:
     bucket mean for gap, floor and door, their ratio, and each bucket's share of the
     pooled gap and floor KL mass in the mode."""
     only = _content_only(mode)
+    if not lines:
+        raise ValueError("no lines")
     means: dict[str, dict[str, list[float]]] = {
         k: {b: [] for b in BUCKETS} for k in ("gap", "floor", "door")
     }
