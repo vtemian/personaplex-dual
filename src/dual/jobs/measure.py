@@ -4,7 +4,11 @@ Per holdout record and pupil turn k, five rows (typed, A, B, C, tape) through on
 teacher-forced forward each; the text log-probs over each row's answer window give
 gap = KL(typed || A), floor = KL(A || B), door = KL(C || A),
 tape_gap = KL(typed || tape), tape_floor = KL(tape || A).
-Writes runs/<name>/measure/<base>[-<run>]/{epoch-NN.jsonl,summary.json}.
+Writes runs/<name>/measure/<base>[-<run>][-<tag>]/{epoch-NN.jsonl,summary.json}.
+Each jsonl line also has content_mask (0/1 per answer frame, 1 where the target text
+is not PAD) and per_frame ({pair: [KL per frame, 6 significant digits]}).
+--epochs N [N ...] measures only those checkpoints (with --run); --tag T labels a
+partial pass apart from a full run.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import argparse
 import dataclasses
 import json
 import pathlib
+import re
 import statistics
 import time
 from collections.abc import Sequence
@@ -20,7 +25,8 @@ from typing import Any
 
 import torch
 
-from dual.kl import AnswerKL, answer_kl, bar, log_probs
+from dual.constants import PAD
+from dual.kl import answer_kl, bar, kl_per_frame, log_probs
 from dual.model import MEM_CAP_GIB
 
 RENDERINGS = ("typed", "A", "B", "C", "tape")
@@ -46,10 +52,59 @@ def parse_args() -> argparse.Namespace:
         default=MEM_CAP_GIB,
         help="cap this process's GPU memory; 0 disables the cap",
     )
+    p.add_argument(
+        "--epochs",
+        type=int,
+        nargs="+",
+        default=None,
+        help="only these checkpoint epochs (with --run); default all",
+    )
+    p.add_argument("--tag", default=None, help="appended to the output label")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--eager", action="store_true", help="no torch.compile")
     mode.add_argument("--compile", action="store_true", help="torch.compile")
     return p.parse_args()
+
+
+def label(base: str, run: str | None, tag: str | None) -> str:
+    return base + (f"-{run}" if run else "") + (f"-{tag}" if tag else "")
+
+
+_CKPT = re.compile(r"model-epoch-(\d+)\.pt$")
+
+
+def select_ckpts(
+    paths: Sequence[pathlib.Path], epochs: Sequence[int] | None
+) -> list[pathlib.Path]:
+    """Checkpoints sorted by name; only the given epochs (by filename) if any."""
+    by_epoch: dict[int, pathlib.Path] = {}
+    for path in sorted(paths):
+        m = _CKPT.search(path.name)
+        if m is None:
+            raise SystemExit(f"not a checkpoint name: {path.name}")
+        by_epoch[int(m.group(1))] = path
+    if epochs is None:
+        return [by_epoch[e] for e in sorted(by_epoch)]
+    missing = sorted(set(epochs) - by_epoch.keys())
+    if missing:
+        raise SystemExit(
+            f"no checkpoint for epoch {missing[0]} (have {sorted(by_epoch)})"
+        )
+    return [by_epoch[e] for e in sorted(set(epochs))]
+
+
+def pair_fields(lps: dict[str, torch.Tensor], targets: list[int]) -> dict[str, Any]:
+    """One turn's per-pair AnswerKL dicts, content_mask and per_frame KL."""
+    out: dict[str, Any] = {}
+    per_frame: dict[str, list[float]] = {}
+    for key, p, q in PAIRS:
+        out[key] = dataclasses.asdict(answer_kl(lps[p], lps[q], targets))
+        per_frame[key] = [
+            float(f"{x:.6g}") for x in kl_per_frame(lps[p], lps[q]).tolist()
+        ]
+    out["content_mask"] = [int(t != PAD) for t in targets]
+    out["per_frame"] = per_frame
+    return out
 
 
 def _bar_dict(gaps: Sequence[float], floors: Sequence[float]) -> dict[str, Any]:
@@ -102,13 +157,14 @@ def turn_lines(lm: Any, records: Sequence[dict[str, Any]], epoch: int) -> list[A
                     raise ValueError(f"{row['id']}: masked frames in the answer")
                 lps[rendering] = log_probs(out.text_logits[0, start:end])
             assert targets is not None
+            fields = pair_fields(lps, targets)
             line: dict[str, Any] = {"stem": record["id"], "turn": k, "epoch": epoch}
-            kls: dict[str, AnswerKL] = {}
-            for key, p, q in PAIRS:
-                kls[key] = answer_kl(lps[p], lps[q], targets)
-                line[key] = dataclasses.asdict(kls[key])
+            for key, _, _ in PAIRS:
+                line[key] = fields[key]
             line["answer_frames"] = len(targets)
-            line["content_frames"] = kls["gap"].content_frames
+            line["content_frames"] = fields["gap"]["content_frames"]
+            line["content_mask"] = fields["content_mask"]
+            line["per_frame"] = fields["per_frame"]
             lines.append(line)
     return lines
 
@@ -133,27 +189,31 @@ def main() -> None:
     records = [
         json.loads(line) for line in (render / "holdout.jsonl").read_text().splitlines()
     ]
-    label = args.base + (f"-{args.run}" if args.run else "")
-    out = root / args.name / "measure" / label
+    name = label(args.base, args.run, args.tag)
+    out = root / args.name / "measure" / name
+    if args.epochs and not args.run:
+        print("note: --epochs is ignored without --run (bare is epoch 0)")
     out.mkdir(parents=True, exist_ok=True)
 
     base = load_base(args.base)
     if args.run:
-        ckpts = sorted((root / args.run / "train").glob("model-epoch-*.pt"))
-        if not ckpts:
+        found = list((root / args.run / "train").glob("model-epoch-*.pt"))
+        if not found:
             raise SystemExit(f"no checkpoints in runs/{args.run}/train")
+        ckpts = select_ckpts(found, args.epochs)
         # the first checkpoint's own setup; load_blob_adapters checks every one
         attach_lora(base, *adapter_setup(read_blob(ckpts[0])["meta"]))
     else:
         ckpts = []
     print(
-        f"measure {label}: {len(records)} records, "
+        f"measure {name}: {len(records)} records, "
         f"{sum(len(r['pupil_turns']) for r in records)} turns, "
         f"{len(ckpts) or 'bare'} checkpoints"
     )
 
     summaries: list[dict[str, Any]] = []
-    for ckpt in ckpts or [None]:
+    todo: list[pathlib.Path | None] = [*ckpts] if ckpts else [None]
+    for ckpt in todo:
         t0 = time.monotonic()
         if ckpt is None:
             epoch, slice_ = 0, None
@@ -162,6 +222,8 @@ def main() -> None:
             meta = blob.get("run", {})
             load_blob_adapters(base, blob)
             epoch, slice_ = int(meta["epoch"]), meta.get("slice")
+            want = int(_CKPT.search(ckpt.name).group(1))  # type: ignore[union-attr]
+            assert epoch == want, f"{ckpt.name}: meta epoch {epoch}"
         with torch.no_grad():
             lines = turn_lines(base.lm, records, epoch)
         with (out / f"epoch-{epoch:02d}.jsonl").open("w") as f:
