@@ -61,3 +61,8 @@ bar:
 .PHONY: noise
 noise:
 	PYTHONPATH=src uv run python -m dual.noise runs/ --seeds personaplex-ladder-personaplex-1 personaplex-ladder2-pp-s1 --variants personaplex-ladder2-pp-lr5e-6 personaplex-ladder2-pp-lr1e-4 personaplex-ladder2-pp-r64 personaplex-ladder2-pp-r4
+
+.PHONY: sidebyside
+EPOCH ?= 2
+sidebyside:
+	sh scripts/submit.sh $(NAME) sidebyside --name $(NAME) --base $(BASE) --render $(RENDER) $(if $(RUN),--run $(RUN) --epoch $(EPOCH),) $(ARGS)
