@@ -77,8 +77,8 @@ def pair_stats(
         "one_empty": sum(not words_of(a) or not words_of(b) for a, b in said),
         "said": len(said),
         "exact": exact,
-        "exact_rate": exact / len(said) if said else 0.0,
-        "median_sim": statistics.median(sims) if sims else 0.0,
+        "exact_rate": exact / len(said) if said else None,
+        "median_sim": statistics.median(sims) if sims else None,
         "sim_ge_0_8": sum(s >= 0.8 for s in sims),
         "empty_p": sum(not words_of(a) for a, _ in answers),
         "empty_q": sum(not words_of(b) for _, b in answers),
@@ -89,6 +89,10 @@ def _table(head: Sequence[str], body: Sequence[Sequence[str]]) -> str:
     lines = ["| " + " | ".join(head) + " |", "|" + "|".join("---" for _ in head) + "|"]
     lines += ["| " + " | ".join(r) + " |" for r in body]
     return "\n".join(lines)
+
+
+def _fmt(x: float | None) -> str:
+    return "-" if x is None else f"{x:.2f}"
 
 
 def stats_table(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
@@ -104,8 +108,8 @@ def stats_table(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
                     str(s["both_empty"]),
                     str(s["one_empty"]),
                     str(s["exact"]),
-                    f"{s['exact_rate']:.2f}",
-                    f"{s['median_sim']:.2f}",
+                    _fmt(s["exact_rate"]),
+                    _fmt(s["median_sim"]),
                     str(s["sim_ge_0_8"]),
                 ]
             )

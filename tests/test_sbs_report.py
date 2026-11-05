@@ -75,12 +75,14 @@ def test_pair_stats_all_silent():
     rows = [row("m", "s", 0, "typed", ""), row("m", "s", 0, "A", "")]
     s = pair_stats(rows, "m", "typed", "A")
     assert s["n"] == 1 and s["both_empty"] == 1 and s["said"] == 0
-    assert s["exact"] == 0 and s["exact_rate"] == 0.0 and s["median_sim"] == 0.0
+    assert s["exact"] == 0 and s["exact_rate"] is None and s["median_sim"] is None
+    out = stats_table(rows, ["m"]).splitlines()
+    assert "| m | typed vs A | 1 | 1 | 0 | 0 | - | - | 0 |" in out[2]
 
 
 def test_pair_stats_none():
     s = pair_stats(ROWS, "trained", "A", "B")
-    assert s["n"] == 0 and s["exact_rate"] == 0.0 and s["median_sim"] == 0.0
+    assert s["n"] == 0 and s["exact_rate"] is None and s["median_sim"] is None
 
 
 def test_duplicates_raise():

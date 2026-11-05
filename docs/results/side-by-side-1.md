@@ -4,45 +4,80 @@ Vlad, 2026-11-05: "ok, do the side by side check first". Before choosing between
 
 ## The answer
 
-At this checkpoint, ratio ~3 shows up as no visible behavioural difference:
-- **Substance (blind judges):** typed vs A differs in **21 of 65** turns. A vs B, the same sentence in two voices, differs in **23 of 65**.
-- **Engagement:** after typed, the tutor takes up what the pupil said in **65 of 65** turns. After A it does in 61 and after B in 61.
-- **Numerics alone:** the same input decoded twice, differing only in batch shape, already differs in substance in **6 of 30**. It never gives the same words twice (0 of 30).
+At this checkpoint, ratio ~3 shows no difference in **what** the tutor says that this study can detect. The one systematic difference is **when** it starts.
 
-So greedy free-running answers diverge about as much between the two voices as between typed and spoken, and much of either divergence is reproduced by numerics alone. The measured gap is three times the floor on the KL bar. Read as answers, typed is not further from A than B is.
+- **Substance (blind judges):** typed vs A differs in **21 of 65** turns. A vs B, the same sentence in two voices, differs in **23 of 65**. The same row decoded twice, in two batch shapes, already differs in **6 of 30**.
+- **Uptake:** after typed, the tutor takes up what the pupil said in **65 of 65** turns; after A in 61 and after B in 61. All 8 answers judged not to take it up follow a spoken turn. That favours typed, but it is 4 per voice in 7 distinct turns (4 vs 0 per voice, sign test p = 0.125). The pair judges' own uptake labels agree on only 3 of the 8, and they flag 2 other answers after A. Neither set marks any typed answer.
+- **Wording:** greedy answers almost never match word for word. The only match is A vs B at dlg-00005-010 turn 0, where both answers are the single word "a". Typed and spoken are about as far apart as the two voices: median word similarity 0.48 against 0.50.
+- **Onset, the systematic difference:**
+  - On the tape, the tutor opens on the answer window's frame 3: `<pad> <pad> <pad> <s>`, in 195/195 rows.
+  - After typed, the trained model also opens on frame 3, in **65/65**.
+  - After A it opens on frame 0 in 52 and frame 2 in 13 (all turn 0). After B: frame 0 in 52, frame 2 in 12 and frame 3 in 1. That is 160-240 ms early.
+  - Typed and A start on the same frame in 0/65 turns; A and B in 64/65.
 
-- **Exact match:** in none of the three pairs on the trained model (typed vs A 0/65, A vs B 1/65, typed vs B 0/65).
-- **Where typed and spoken differ:** the cases that look like a typed/spoken difference go the other way: all 8 answers that do not take up the pupil's turn follow a *spoken* turn. Several restate a number the pupil never said, e.g. "two is right" after "zero".
-- **Bare PersonaPlex** says nothing in the answer window after any spoken turn (65/65 A, 65/65 B). After the typed turn it is silent in 52/65. Its 13 typed answers are all at turn 0, the lesson's opening, and are greetings or role-play ("Hi, I'm Fong.", "Hi, I'm calling about a payment plan."). The bare model therefore gives no reference behaviour here.
+  The teacher-forced numbers show the same thing on the PAD frames, which the content-frame bar leaves out. On all answer frames at epoch 2 the median gap is 0.0755 against a floor of 0.0039 (ratio ~19). On content frames it is 0.025 against 0.0077 (3.24).
+
+  The tape's own spoken pupil turn sides with typed here: KL(typed‖tape) is 0.014 on all frames, against 0.068 for KL(tape‖A). So the early start follows the TTS renderings, which add 6 frames of Mimi silence after the voice. It does not follow typed vs spoken as such.
+
+  The `<s>` frame is itself a content frame. **Whether the content-frame ratio of ~3 is mostly this onset is untested.**
+- **Bare PersonaPlex:**
+  - After every spoken turn it says nothing in the answer window (65/65 A, 65/65 B).
+  - After typed it is silent in 52/65. Its 13 typed answers are all at turn 0, the lesson's opening, and are mostly greetings or role-play ("Hi, I'm Fong.", "Hi, I'm calling about a payment plan."). 038 starts an on-topic definition; 094 asks the question back.
+  - So the bare model gives no reference behaviour here.
 
 ## What was run
 
-- **Job:** `src/dual/jobs/sidebyside.py` (`make sidebyside`), image `sbs:546c4cb`; the control ran on `sbs:d07b764`, the same decoding plus an adapter check. Jobs:
+- **Job:** `src/dual/jobs/sidebyside.py` (`make sidebyside`), image `sbs:546c4cb`. The control ran on `sbs:d07b764`: the same decoding plus an adapter check, which found 256 adapter tensors, all moved, norm 27.3 (`control-meta.json`). Jobs:
   - `job-20261105-113501-vlad-sbs-smoke`;
-  - `job-20261105-114135-vlad-sbs-1` (main: bare 2,008 s, trained 2,044 s, peak 39 GiB under the 64 GiB cap);
-  - `job-20261105-114655-vlad-sbs-1-ctl` (853 s).
+  - `job-20261105-114135-vlad-sbs-1` (main: bare 2,014 s, trained 2,049 s, peak 39 GiB under the 64 GiB cap; `meta.json`);
+  - `job-20261105-114655-vlad-sbs-1-ctl` (853 s of decoding).
   - About 84 GPU-minutes in all, with drama3 stopped and the Mac-side watchdog running.
 - **Models:**
   - Bare PersonaPlex.
-  - **Trained** = `ladder-personaplex-1` epoch 2: rank 16, LR 2e-5, all 117 dialogues. It has the lowest held-out text loss of that run, 0.540. Its own content-frame numbers, recomputed from its `measure` epoch-02 lines, are median gap 0.025, floor 0.0077, ratio 3.24. The R_gap epoch of ladder 2 is epoch 1, at 3.04.
-  - Adapters: 256 tensors, norm 27.3, all moved, applied in bf16 as autocast ran them.
-- **Turns:** every holdout pupil turn, 13 dialogues x 5 = 65, each rendered typed, A and B (195 rows per model). The rows are exactly `holdout_row`'s, the ones the bar measures.
+  - **Trained** = `ladder-personaplex-1` epoch 2: rank 16, LR 2e-5, all 117 dialogues. Epoch 2 has the run's lowest held-out text loss, 0.540.
+  - The trained model's content-frame numbers, from its `measure` epoch-02 lines (copied here as `measure-ladder-personaplex-1-epoch-02.jsonl`): median gap 0.025, floor 0.0077, ratio 3.24. Ladder 2's R_gap epoch for this run is epoch 1, at 3.04.
+  - Adapters run in bf16, as autocast ran them.
+- **Turns:** every holdout pupil turn, 13 dialogues x 5 = 65, each typed, A and B (195 rows per model). These are exactly `holdout_row`'s rows, the ones the bar measures.
 - **Decoding:**
   - moshi 0.2.13 `LMGen`, greedy on text and audio, with `dep_q = 8` as in the B1.5 probe.
-  - Every stream is forced up to the tutor answer's first frame. That covers the tape's earlier turns, the rendered pupil turn and its 6 gap frames.
-  - Text and moshi's own audio are then generated for the tape answer's length (median 371 frames, about 30 s). Meanwhile the pupil stream plays the tape's, which is identical in all three rows.
+  - Every stream is forced up to the tutor answer's first frame: the tape's earlier turns, the rendered pupil turn and its 6 gap frames.
+  - Then text and moshi's own audio are generated for the tape answer's length (median 371 frames, about 30 s), while the pupil stream plays the tape's. The tape's pupil stream is identical in all three rows.
   - At LMGen step s, the job feeds pupil frame s-1, forces text frame s and forces own codebook k at frame s - delay_k. That is `LMModel.forward`'s teacher-forced layout, so the first generated frame sees exactly what the bar's first answer frame sees.
   - Items share batches through LMGen's per-item exec mask. Each batch's KV ring is cut to its longest item, so no attention changes.
 - **Outputs:** in `docs/results/side-by-side-1/`:
   - `answers.jsonl`: every decoded answer with its ids;
   - `control-answers.jsonl`;
-  - `meta.json`;
-  - `judge-labels.jsonl`: every blind label, unblinded;
-  - `judgments.jsonl`: per-turn substance labels.
+  - `meta.json` and `control-meta.json`;
+  - `judge-prompts.txt`;
+  - `judge-labels.jsonl`: every blind label, unblinded, `type` pair or answer;
+  - `judgments.jsonl`: per-turn substance;
+  - the epoch-02 measure lines.
 
   Moshi's generated codes are on the box only, in `runs/sbs-1/sidebyside/codes.jsonl`.
 
 ## Counts
+
+### Onset: the answer window's first non-`<pad>` text frame
+
+| after | frame 0 | frame 2 | frame 3 | silent |
+|---|---|---|---|---|
+| tape (reference) | - | - | 195 | - |
+| trained, typed | - | - | 65 | - |
+| trained, A | 52 | 13 | - | - |
+| trained, B | 52 | 12 | 1 | - |
+| bare, typed | 13 | - | - | 52 |
+| bare, A / B | - | - | - | 65 / 65 |
+
+The control repeats the trained pattern on all 10 of its turns.
+
+Median KL per answer frame, teacher-forced, at epoch 2:
+
+| | content frames | all frames |
+|---|---|---|
+| gap: typed‖A | 0.0251 | 0.0755 |
+| floor: A‖B | 0.0077 | 0.0039 |
+| typed‖tape | 0.0290 | 0.0137 |
+| tape‖A | 0.0139 | 0.0681 |
 
 ### Word level (`python -m dual.sbs_report`)
 
@@ -52,22 +87,25 @@ Similarity is difflib's ratio on normalised words. Two silent answers are counte
 |---|---|---|---|---|---|---|---|---|
 | bare | typed vs A | 65 | 52 | 13 | 0 | 0.00 | 0.00 | 0 |
 | bare | A vs B | 65 | 65 | 0 | 0 | - | - | 0 |
+| bare | typed vs B | 65 | 52 | 13 | 0 | 0.00 | 0.00 | 0 |
 | trained | typed vs A | 65 | 0 | 0 | 0 | 0.00 | 0.48 | 6 |
 | trained | A vs B | 65 | 0 | 0 | 1 | 0.02 | 0.50 | 3 |
 | trained | typed vs B | 65 | 0 | 0 | 0 | 0.00 | 0.49 | 5 |
-| trained, control: same row, other batch shape | main vs control | 30 | 0 | 0 | 0 | 0.00 | 0.60 | - |
+| trained, control: same row, other batch shape | main vs control | 30 | 0 | 0 | 0 | 0.00 | 0.60 | 6 |
 
-The control re-decoded the first 10 turns (30 rows) with `--max-batch 5` instead of batches of 8 to 53. Greedy ids first disagreed 1 to 78 frames into the answer, and never agreed to the end. On the same 10 turns, typed vs A has median similarity 0.47 and A vs B 0.56. In bf16, a different batch shape changes the kernels and their rounding, which flips near-tied argmaxes. A free run then goes its own way.
+- **The control:** it re-decoded the first 10 turns (30 rows) with `--max-batch 5` instead of batches of 8 to 53. Greedy ids first disagreed 1 to 78 frames into the answer and never agreed to the end.
+- **The same 10 turns in the main run:** typed vs A has median similarity 0.47, A vs B 0.56.
+- **Likely cause:** in bf16 a different batch shape changes the kernels and their rounding, which flips near-tied argmaxes, and a free run then goes its own way. The KV cap and the process history also changed between the two runs.
 
 ### Substance (blind judges)
 
-The labels came from two opus judges on 160 pairs (80 each) and two on 225 single answers. Each judge saw only the previous tutor turn, the pupil turn, the tape tutor's answer and the answer(s). Pairs were shuffled, X/Y order was randomised, and the judges were never told which pair was typed vs A, A vs B or a control. "Same" means the same pedagogical move on the pupil's turn: the same verdict, the same claim and the same next step, whatever the wording.
+The labels came from two opus judges on 160 pairs (80 each) and two on 225 single answers. Each judge saw only the previous tutor turn, the pupil turn, the tape tutor's answer and the answer(s). Pairs were shuffled, X/Y order was randomised, and the pair type was never shown. The prompts are in `judge-prompts.txt`. "Same" means the same pedagogical move on the pupil's turn: the same verdict, claim and next step, whatever the wording. The judges were told to weigh the opening two sentences most.
 
 | pair | turns | same | differs |
 |---|---|---|---|
 | typed vs A | 65 | 44 | 21 |
 | A vs B | 65 | 42 | 23 |
-| control: same row, other batch shape | 30 | 24 | 6 |
+| main vs control: same row, other batch shape | 30 | 24 | 6 |
 | typed vs A, on the control's 10 turns | 10 | 6 | 4 |
 | A vs B, on the control's 10 turns | 10 | 6 | 4 |
 
@@ -91,33 +129,37 @@ Single answers (trained):
 
 The 8 that do not take up the turn:
 - after A: 056 turn 4 (garbles the pupil's minus one); 056 turn 8; 073 turn 0 (filler "right"); 010 turn 0 (the single word "a");
-- after B: 038 turn 8 ("minus one and a half" for the pupil's one point one); 123 turn 4 ("two is right" for zero); 110 turn 0; 010 turn 0 ("a").
+- after B: 038 turn 8 (answers "minus one and a half" to the pupil's one point one); 123 turn 4 (answers as if the pupil said two, not zero); 110 turn 0; 010 turn 0 ("a").
 
-The verdict columns are judged per answer. The same turn can get "n/a" under one rendering and "agree" under another, so they carry label noise of about one or two in 65.
+Three of them restate a number the pupil did not say: 056 t4, 038 t8 and 123 t4.
 
-### Against the measured KL (epoch 2, per turn)
+Label noise: the main and control single labels on the same 30 rows (same input, other decode) differ in 1 of 30 for each field.
+
+### Against the measured KL (epoch 2, per turn, content frames)
 
 | | same | differs |
 |---|---|---|
 | median gap, turns judged typed vs A | 0.0246 (44) | 0.0263 (21) |
 | median floor, turns judged A vs B | 0.0074 (42) | 0.0103 (23) |
 
-A turn's KL barely separates the turns whose answers differ from those whose answers do not. Each judged-differs median sits less than 0.003 above its judged-same median.
+The link is weak and goes the expected way:
+- **Floor:** the turns judged to differ have a median 39% higher (AUC 0.65, permutation p ≈ 0.05).
+- **Gap:** 7% higher (AUC 0.61, p ≈ 0.15).
 
 ## Representative pairs (trained, truncated)
 
 **Typed differs, A and B agree** (dlg-00005-094, turn 2). Pupil: "up about zero point one, since the slope there is near one."
-- typed: "yes, about zero point one, since near one the wave still climbs nearly one for each step along ... the wave must stand about one point zero eight at one point one, a tenth higher."
-- A: "yes, about zero point one, since the wave barely climbs there ... The slope is zero there."
+- typed: "yes, about zero point one, since near one the wave still climbs nearly one for each step along ... a tenth higher."
+- A: "yes, about zero point one, since the wave barely climbs there ... the slope is zero there."
 - B: "yes, about zero point one, since the wave barely climbs there ... the slope is zero."
 
-Judge: both accept 0.1, then X says slope zero and Y says near one. Here typed keeps the pupil's reasoning, and A and B drift to "zero".
+Judge: "Both accept 0.1; X says slope zero, Y near one."
 
 **A and B differ, typed agrees with A** (dlg-00005-091, turn 8). Pupil: "minus one, because the slope is minus twice x."
-- typed / A: "yes, minus one, because twice x is the rule we have found ..."
+- typed and A: "yes, minus one, because twice x is the rule we have found ..."
 - B: "yes, minus twice x, and that rule is the derivative. I make the hill at one half one point three nine above ground, so its climb there is just over two."
 
-**A spoken turn misheard** (dlg-00005-123, turn 4). Pupil: "zero, since the height barely moved over that small step."
+**A spoken turn answered as something else** (dlg-00005-123, turn 4). Pupil: "zero, since the height barely moved over that small step."
 - typed: "right, zero, because the height barely moved there."
 - A: "zero is right, and your reason holds."
 - B: "two is right, and the step of three hundredths shows why."
@@ -126,23 +168,23 @@ Judge: both accept 0.1, then X says slope zero and Y says near one. Here typed k
 - main: "yes, flat, and the numbers show why. a tenth along lifted the hill a tenth ... the slope is zero at ground level."
 - control: "yes, flat, and the numbers show why. one point one squared is one point two one, so we have the hill dropping two tenths ... falling two for every one across."
 
-**Typical:** openings agree, continuations drift (dlg-00005-110, turn 6). Pupil: "minus three, since the slope is minus two times x." All three open "yes, minus three, ..." and reuse "one and a half squared is two and a quarter". Then each computes a different height.
+**Typical: openings agree, continuations drift** (dlg-00005-110, turn 6). Pupil: "minus three, since the slope is minus two times x." All three open "yes, minus three, ..." and reuse "one and a half squared is two and a quarter". Then each computes a different height.
 
 ## Caveats
 
-- **Greedy and unstable.** One greedy path per row, and that path changes with batch shape. "Differs" in any single turn is weak evidence. The counts compare rates over 65 turns, and the control gives the rate numerics alone produce (6/30, or 20%). With n = 65, 21 against 23 is no difference. The study can see a typed-specific difference only if it is large, e.g. typed vs A differing in well over half the turns while A vs B stays near a third.
-- **Free-running.** After the first answer frame the model conditions on its own words, so a 30 s answer accumulates drift. The KL bar scores every frame under the tape's words. The judges were told to weigh the opening two sentences most.
-- **The judges are models.** Each item had one label. The label noise is visible in the verdict columns.
-- **One checkpoint, one epoch.** This is epoch 2 of the 117-dialogue run, whose ratio is 3.24. No sampled decoding, and no other run.
-- **Bare is not a reference.** In this setup, bare is silent after every spoken turn. The B1.5 probe did see bare PersonaPlex speak after a spoken opening, but that setup differed: moshi's own audio was free during the pupil turn, there was no forced tape before it, and its step alignment was one frame off. This run does not say which difference silences it.
-- **What is not shown.** The answers do not show that the typed and spoken *distributions* are the same. The KL says they differ by about 3x the voice floor, on average 0.025 nats a frame. What they show is that the difference does not change what the tutor does after the turn, in a way a reader can see in greedy output. Every answer judged not to take up the pupil's turn follows a spoken one.
+- **Greedy and unstable.** There is one greedy path per row, and that path changes with batch shape. A "differs" in any single turn is weak evidence. The counts compare rates over 65 turns, and the control gives the rate that numerics alone produce: 6/30. With n = 65, 21 against 23 is no difference. This study can see a typed-specific difference in substance only if it is large.
+- **Free-running.** After the first answer frame the model conditions on its own words, so a 30 s answer accumulates drift. The KL bar instead scores every frame under the tape's words.
+- **The judges are models.** Each item had one label (label noise above).
+- **One checkpoint, one epoch.** Epoch 2 of the 117-dialogue run, ratio 3.24. No sampled decoding, no other run.
+- **Bare is not a reference.** Bare is silent after every spoken turn in this setup. The B1.5 probe did see bare PersonaPlex speak after a spoken opening, but it ran differently: moshi's own audio was free during the pupil turn, there was no forced tape, and its step alignment was one frame off. This run does not say which difference matters.
+- **The distributions are not shown to match.** The KL says the typed and spoken distributions differ, by a median of 0.025 nats per content frame, about 3x the voice floor. The greedy answers show that the difference does not change *what* the tutor does after the turn by enough to see in 65 turns. It does change *when* it starts.
 
 ## What this says about the four options
 
-- **An alignment or consistency loss on the typed answer:** it would push a number down that, at this checkpoint, has no behavioural counterpart in these 65 turns.
-- **Re-checking the bar:** consistent with this reading. A KL ratio of ~3 on 0.025-nat gaps sits next to typed and spoken answers that differ no more than two voices do. One option is a bar on behaviour, e.g. agreement of the opening move. Another is a looser KL threshold.
-- **Engine:** nothing here bears on it. The batched LMGen job ran 195 rows a model in 34 min.
-- **More data:** ladder 1 found the ratio flat with data at the healthy epochs, and this run shows no behavioural gap at 117 dialogues for more data to close.
+- **An alignment or consistency loss on the typed answer.** In what the tutor says, the content gap has no counterpart that 65 greedy turns can show. It does have one in when the tutor starts. Whether the content-frame ratio is mostly the onset is untested. A loss would push both down, and the onset half matches the tape (typed and tape start alike), not the voices.
+- **Re-checking the bar.** The reading is consistent with this option. A KL ratio of ~3 on 0.025-nat gaps sits next to typed and spoken answers whose substance differs no more than two voices' does. The content-only bar also hides the larger onset difference, because it skips PAD frames. The ratio there is ~19, and it follows the TTS rendering: tape and typed agree. A cheap next check, without training, is one measure pass on epoch 2 that reports KL by offset into the answer window. It would show whether the content gap sits at the opening `<s>` and first words.
+- **Engine.** Nothing here bears on it. The batched LMGen job ran 195 rows per model in 34 min.
+- **More data.** Ladder 1 found the ratio flat with data at the healthy epochs. At 117 dialogues this shows no gap in substance for more data to close. The onset is a property of how A and B are rendered, which more dialogues of the same rendering would not change.
 
 ## Every turn
 

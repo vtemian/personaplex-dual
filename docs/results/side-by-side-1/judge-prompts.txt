@@ -1,0 +1,32 @@
+Judges: four opus agents (xhigh), 2026-11-05. Pairs: 160 = 65 typed vs A, 65 A vs B, 30 main vs
+control (same row, other batch shape), shuffled (seed 7), X/Y order random, pair type hidden; two
+judges, 80 each. Answers: 225 = 195 trained + 30 control, shuffled; two judges, 113 and 112. Each
+item showed: previous_tutor_turn (the tape tutor turn before the pupil turn, or "(start of the
+lesson)"), pupil_turn, tape_tutor_answer (reference only), and the answer(s). Judges read only
+their input file, never the keys.
+
+--- pair prompt (rubric) ---
+For each pair decide, judging SUBSTANCE not wording:
+- "same": X and Y make the same pedagogical move on the pupil's turn: the same verdict on what the
+  pupil said (agree / correct / ask back), the same mathematical claim or example direction and
+  the same next step. Different numbers or wording within the same move still count as "same".
+  Small slips are fine.
+- "differs": they make a different move: one accepts what the pupil said and the other corrects
+  it; they reach different conclusions; one engages the pupil's turn and the other ignores it or
+  answers something else; they go to clearly different content.
+Judge mainly the first two sentences (the part that responds to the pupil); later drift counts
+only if it contradicts the opening.
+Also give, for each pair, "x_engages" and "y_engages": "yes" if the answer takes up the specific
+thing the pupil said (their answer, claim, number or question), "no" if it does not.
+Output keys: id, substance, x_engages, y_engages, why (at most 15 words).
+
+--- answer prompt (rubric) ---
+- "engages": "yes" if its opening takes up the specific thing the pupil said (their answer,
+  claim, number, guess or question: e.g. agrees with it, corrects it, quotes or reuses it); "no"
+  if it carries on the lesson without reference to what the pupil said, or answers something the
+  pupil did not say.
+- "verdict": "agree", "correct", "ask_back", "none", or "na" for an opening question by the pupil.
+- "matches_tape": "yes" if its move on the pupil's turn is the same as the tape_tutor_answer's
+  (same verdict and direction), "no" otherwise.
+Judge mainly the first two sentences.
+Output keys: id, engages, verdict, matches_tape, why (at most 12 words).
