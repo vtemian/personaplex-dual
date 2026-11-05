@@ -87,6 +87,9 @@ def read(root: pathlib.Path) -> list[dict[str, Any]]:
     seen: dict[tuple[str, str, int], pathlib.Path] = {}
     for path in sorted(root.glob("measure/*/summary.json")):
         for s in json.loads(path.read_text()):
+            label = s["base"] + (f"-{s['run']}" if s["run"] else "")
+            if path.parent.name.startswith(label + "-"):
+                continue  # a `measure --tag` partial pass, not part of the bar
             k = (s["run"] or "", s["base"], int(s["epoch"]))
             if k in seen:
                 raise ValueError(

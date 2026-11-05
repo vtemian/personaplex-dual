@@ -89,6 +89,16 @@ def test_read_refuses_two_summaries_for_one_run_base_epoch(tmp_path):
         read(tmp_path)
 
 
+def test_read_skips_a_tagged_partial_pass_of_a_measured_run(tmp_path):
+    from dual.report import read
+
+    for name, entries in {"personaplex-s": [E1, E2], "personaplex-s-pos": [E2]}.items():
+        d = tmp_path / "measure" / name
+        d.mkdir(parents=True)
+        (d / "summary.json").write_text(json.dumps(entries))
+    assert [s["epoch"] for s in read(tmp_path)] == [1, 2]
+
+
 def test_best_prefers_a_passing_epoch_over_a_smaller_ratio():
     low_ratio_fails_p90 = summary("s", 1, 0.1, 0.5, 2.0, 1.0)
     passes = summary("s", 2, 0.4, 0.5, 0.9, 1.0)
