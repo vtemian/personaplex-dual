@@ -2055,4 +2055,4 @@ Vlad, at the ladder-2 gate: "ok, do the side by side check first". The request: 
   - `sbs-1-ctl`: the same rows for 10 turns, in other batch shapes.
   - About 84 GPU-minutes in all.
   - Blind substance labels by model judges.
-- **Results:** `docs/results/side-by-side-1.md`. Typed vs A differs in substance in 21/65 turns and A vs B in 23/65. The same row in another batch shape differs in 6/30. The tutor takes up the pupil's turn after 65/65 typed turns and 61/65 for each voice.
+- **Results:** `docs/results/side-by-side-1.md`. Typed vs A differs in substance in 21/65 turns and A vs B in 23/65. The same row in another batch shape differs in 6/30. The tutor takes up the pupil's turn after 65/65 typed turns and 61/65 for each voice. The one systematic difference is onset: after A or B the trained model starts 2-3 frames early (frame 0 in 52/65), while after typed it starts on the tape's frame 3 in 65/65. That shows on PAD frames, which the content bar skips (all-frame gap/floor ~19). Untested: how much of the content-frame ~3 is this onset.
