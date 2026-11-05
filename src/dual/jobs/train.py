@@ -157,7 +157,7 @@ def build_teachers(
             if not student:
                 continue
             if have is None or have[0] != stem:
-                have = None  # drop the previous stem's logits first
+                t = have = None  # drop the previous stem's logits first
                 have = (stem, forward(lm, codes_from_row(spoken[stem])))
             t = have[1]
             s_idx = torch.tensor(student, device=t.text_logits.device)
@@ -165,6 +165,15 @@ def build_teachers(
             keep = t.text_mask[0, t_idx]
             out[i] = (s_idx[keep], log_probs(t.text_logits[0, t_idx[keep]]))
     return out
+
+
+def dynamo_stats() -> dict[str, int]:
+    """torch.compile's own counters (graphs compiled, recompiles), for the smoke."""
+    try:
+        from torch._dynamo.utils import counters
+    except ImportError:
+        return {}
+    return {k: int(v) for k, v in counters["stats"].items()}
 
 
 def batches(
@@ -407,9 +416,11 @@ def main() -> None:
                 if done >= args.max_steps or epoch == args.epochs:
                     print(
                         f"smoke: {done} steps, peak mem "
-                        f"{torch.cuda.max_memory_allocated() / 2**30:.1f} GiB; "
-                        "no checkpoint written"
+                        f"{torch.cuda.max_memory_allocated() / 2**30:.1f} GiB "
+                        f"(reserved {torch.cuda.max_memory_reserved() / 2**30:.1f} "
+                        "GiB); no checkpoint written"
                     )
+                    print("dynamo:", dynamo_stats())
                     return
                 continue
             seconds = time.monotonic() - t0
