@@ -1,0 +1,385 @@
+{"kind": "typed_vs_A", "stem": "dlg-00005-087", "turn": 0, "substance": "same", "why": "Both say work it out with numbers or heights, then predict shape."}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 0, "substance": "same", "why": "Both propose testing on the wave with numbers from zero."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-010", "turn": 4, "substance": "same", "why": "Both accept 'less than nine' wrongly; numbers differ."}
+{"kind": "A_vs_B", "stem": "dlg-00005-038", "turn": 2, "substance": "same", "why": "Both agree 'barely up', then compute a climbing slope."}
+{"kind": "A_vs_B", "stem": "dlg-00005-123", "turn": 8, "substance": "differs", "why": "Both accept -2.25, but X then says curve levels off."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-091", "turn": 0, "substance": "same", "why": "Both answer by working a numeric example; different functions."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-027", "turn": 6, "substance": "same", "why": "Both confirm zero slope at the flat peak."}
+{"kind": "A_vs_B", "stem": "dlg-00005-056", "turn": 0, "substance": "differs", "why": "X says it's both; Y sidesteps into wave height."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-063", "turn": 4, "substance": "same", "why": "Both wrongly accept two at the peak."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-094", "turn": 0, "substance": "same", "why": "Both say find it with numbers and start an example."}
+{"kind": "A_vs_B", "stem": "dlg-00005-074", "turn": 6, "substance": "same", "why": "Both agree it falls; both later give minus two."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-081", "turn": 8, "substance": "same", "why": "Both say 'right' yet predict a gentle fall there."}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 6, "substance": "same", "why": "Both confirm minus two at three point one four."}
+{"kind": "A_vs_B", "stem": "dlg-00005-074", "turn": 2, "substance": "same", "why": "Both agree 'slightly up' and compute a climb."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-056", "turn": 6, "substance": "differs", "why": "Y confirms one; X says 'yes, two', then four."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-074", "turn": 4, "substance": "same", "why": "Both wrongly accept zero slope at two."}
+{"kind": "A_vs_B", "stem": "dlg-00005-073", "turn": 2, "substance": "same", "why": "Both accept two tenths again, one slope."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-091", "turn": 8, "substance": "same", "why": "Both confirm minus one from minus twice x."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-010", "turn": 2, "substance": "same", "why": "Both accept 0.96 and slope about nine."}
+{"kind": "A_vs_B", "stem": "dlg-00005-094", "turn": 4, "substance": "differs", "why": "Y confirms slope two; X agrees but concludes slope one."}
+{"kind": "A_vs_B", "stem": "dlg-00005-091", "turn": 6, "substance": "same", "why": "Both confirm four at minus two."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-094", "turn": 2, "substance": "differs", "why": "Both accept 0.1; X says slope zero, Y near one."}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 6, "substance": "same", "why": "Both confirm minus two holds."}
+{"kind": "A_vs_B", "stem": "dlg-00005-110", "turn": 2, "substance": "differs", "why": "X endorses steeper-means-higher; Y proposes testing it."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-074", "turn": 6, "substance": "differs", "why": "Both say down; X then claims it climbs nine."}
+{"kind": "A_vs_B", "stem": "dlg-00005-010", "turn": 2, "substance": "differs", "why": "X confirms slope nine; Y says curve level, slope zero."}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 4, "substance": "same", "why": "Both confirm two, climbing at minus one."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-063", "turn": 8, "substance": "same", "why": "Both agree it falls, slope about minus two."}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 6, "substance": "same", "why": "Both confirm four with the doubling rule."}
+{"kind": "A_vs_B", "stem": "dlg-00005-123", "turn": 6, "substance": "same", "why": "Both confirm falling three at zero."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-010", "turn": 0, "substance": "differs", "why": "X answers what a derivative is; Y is a single word."}
+{"kind": "A_vs_B", "stem": "dlg-00005-038", "turn": 6, "substance": "same", "why": "Both confirm minus three, sinking toward the dip."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-091", "turn": 2, "substance": "differs", "why": "Both say flat; X then concludes slope minus one."}
+{"kind": "A_vs_B", "stem": "dlg-00005-074", "turn": 0, "substance": "same", "why": "Both wrongly say 'it does', then start an example."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-073", "turn": 8, "substance": "differs", "why": "Both affirm nearer one; X climbs about one, Y falls near zero."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-010", "turn": 6, "substance": "same", "why": "Both confirm fifteen point seven five."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-074", "turn": 2, "substance": "same", "why": "Both treat 'slightly up' as a call to test numerically."}
+{"kind": "A_vs_B", "stem": "dlg-00005-091", "turn": 8, "substance": "differs", "why": "Y confirms minus one; X concludes slope just over two."}
+{"kind": "A_vs_B", "stem": "dlg-00005-110", "turn": 4, "substance": "differs", "why": "Y agrees it drops one; X says it climbs 1.5."}
+{"kind": "A_vs_B", "stem": "dlg-00005-094", "turn": 6, "substance": "same", "why": "Both confirm zero at the top."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-056", "turn": 8, "substance": "differs", "why": "X accepts slope 1.25; Y says yes but gives 2.25."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-087", "turn": 8, "substance": "same", "why": "Both wrongly accept slope two at two."}
+{"kind": "A_vs_B", "stem": "dlg-00005-110", "turn": 8, "substance": "same", "why": "Both confirm minus two at x one."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-123", "turn": 6, "substance": "same", "why": "Both confirm falling three at zero."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-123", "turn": 2, "substance": "same", "why": "Both wrongly accept three tenths."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-110", "turn": 0, "substance": "same", "why": "Both build from numbers on the wave at zero."}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 4, "substance": "same", "why": "Both call flat a fair guess, slope zero at peak."}
+{"kind": "A_vs_B", "stem": "dlg-00005-063", "turn": 4, "substance": "same", "why": "Both wrongly accept two at the peak."}
+{"kind": "A_vs_B", "stem": "dlg-00005-056", "turn": 8, "substance": "differs", "why": "Y accepts slope 1.25; X says yes but gives 2.25."}
+{"kind": "A_vs_B", "stem": "dlg-00005-056", "turn": 2, "substance": "same", "why": "Both confirm two, still climbing at one."}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 8, "substance": "differs", "why": "Both accept rule; X falls 1.5, Y climbs over two."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-027", "turn": 2, "substance": "differs", "why": "X confirms 1.68; Y says two and level."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-073", "turn": 4, "substance": "differs", "why": "X keeps zero at peak; Y concludes slope minus one."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-094", "turn": 6, "substance": "same", "why": "Both confirm zero at the top."}
+{"kind": "A_vs_B", "stem": "dlg-00005-094", "turn": 2, "substance": "same", "why": "Both accept 0.1 then claim slope zero."}
+{"kind": "A_vs_B", "stem": "dlg-00005-038", "turn": 4, "substance": "differs", "why": "X accepts slope two; Y ends at slope eight."}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 4, "substance": "same", "why": "Both confirm two climbing at minus one."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-087", "turn": 6, "substance": "differs", "why": "Y confirms under one; X asserts one and a half."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-027", "turn": 0, "substance": "same", "why": "Both propose testing the one-number claim."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-063", "turn": 0, "substance": "differs", "why": "Y endorses steeper-means-higher; X only proposes a test."}
+{"kind": "A_vs_B", "stem": "dlg-00005-091", "turn": 2, "substance": "differs", "why": "Both say flat; X then concludes slope minus one."}
+{"kind": "A_vs_B", "stem": "dlg-00005-094", "turn": 8, "substance": "same", "why": "Both confirm minus 0.83 falling past top."}
+{"kind": "A_vs_B", "stem": "dlg-00005-087", "turn": 8, "substance": "differs", "why": "X accepts slope two; Y says slope nine."}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 0, "substance": "same", "why": "Both answer: feed an input number, then nudge it."}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 0, "substance": "same", "why": "Both explain nudging the input on the wave."}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 4, "substance": "differs", "why": "Both test flat; X ends near zero, Y minus one."}
+{"kind": "A_vs_B", "stem": "dlg-00005-073", "turn": 6, "substance": "same", "why": "Both confirm minus two holds."}
+{"kind": "A_vs_B", "stem": "dlg-00005-027", "turn": 8, "substance": "differs", "why": "Both say yes; X then gives minus 3.13, Y minus 0.83."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-087", "turn": 2, "substance": "same", "why": "Both confirm 2.961 and slope near nine."}
+{"kind": "A_vs_B", "stem": "dlg-00005-081", "turn": 6, "substance": "same", "why": "Both confirm flat at the top."}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 0, "substance": "same", "why": "Both wrongly say 'it does', then start a cubic."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-038", "turn": 8, "substance": "same", "why": "Both wrongly accept 1.1, then set up rule test."}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 8, "substance": "differs", "why": "X slope about one; Y says minus 1.99."}
+{"kind": "A_vs_B", "stem": "dlg-00005-094", "turn": 0, "substance": "same", "why": "Both say find it with numbers on a cubic."}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 2, "substance": "same", "why": "Both accept two tenths again, one slope."}
+{"kind": "A_vs_B", "stem": "dlg-00005-010", "turn": 4, "substance": "same", "why": "Both accept 'less than nine' wrongly."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-073", "turn": 0, "substance": "differs", "why": "X endorses one slope; Y proposes testing it."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-091", "turn": 6, "substance": "same", "why": "Both confirm four with the doubling rule."}
+{"kind": "A_vs_B", "stem": "dlg-00005-087", "turn": 0, "substance": "same", "why": "Both say work it out by feeding numbers."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-081", "turn": 4, "substance": "same", "why": "Both wrongly accept less climb at zero."}
+{"kind": "typed_vs_A", "stem": "dlg-00005-056", "turn": 4, "substance": "differs", "why": "X accepts minus one as the slope; Y says 'one', concludes slope zero"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 2, "substance": "differs", "why": "Both say zero; X then finds slope minus one, Y keeps it flat"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 4, "substance": "same", "why": "Both agree flat, test past the peak, get minus one, ask back"}
+{"kind": "A_vs_B", "stem": "dlg-00005-074", "turn": 4, "substance": "same", "why": "Both accept zero, then compute the height at two"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-074", "turn": 8, "substance": "same", "why": "Both accept three at one half; near-identical working"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 8, "substance": "same", "why": "Both confirm minus one through the twice-x rule"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-073", "turn": 2, "substance": "same", "why": "Both accept two tenths again, slope two at 1.57"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-010", "turn": 8, "substance": "same", "why": "Both accept about nine tenths, gentler lower down"}
+{"kind": "A_vs_B", "stem": "dlg-00005-091", "turn": 4, "substance": "same", "why": "Both agree it climbs at minus one; X's three is a slip"}
+{"kind": "A_vs_B", "stem": "dlg-00005-056", "turn": 6, "substance": "differs", "why": "Y confirms slope one; X says two and ends at four"}
+{"kind": "A_vs_B", "stem": "dlg-00005-081", "turn": 8, "substance": "same", "why": "Both accept 'stands high', yet both compute a fall at two"}
+{"kind": "A_vs_B", "stem": "dlg-00005-027", "turn": 0, "substance": "differs", "why": "X calls it a guess, uses cubic; Y agrees, uses sine"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-073", "turn": 6, "substance": "same", "why": "Both confirm minus two at 3.14"}
+{"kind": "A_vs_B", "stem": "dlg-00005-063", "turn": 6, "substance": "same", "why": "Both confirm less than two; near-identical text"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-094", "turn": 8, "substance": "same", "why": "Both confirm minus 0.83, falling past the top"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 2, "substance": "differs", "why": "Both say flat; X keeps slope zero, Y concludes drop of two"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 8, "substance": "same", "why": "Both accept nearer one with identical openings; later numbers garbled"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-038", "turn": 2, "substance": "differs", "why": "X confirms barely, slope zero; Y computes slope three"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-110", "turn": 4, "substance": "same", "why": "Both agree it drops one per step; X drops the sign"}
+{"kind": "A_vs_B", "stem": "dlg-00005-063", "turn": 8, "substance": "same", "why": "Both agree it falls, slope minus two, ask about lines"}
+{"kind": "A_vs_B", "stem": "dlg-00005-081", "turn": 4, "substance": "same", "why": "Both accept less than at one, slope near zero"}
+{"kind": "A_vs_B", "stem": "dlg-00005-081", "turn": 2, "substance": "same", "why": "Both accept 1.78, slope about one"}
+{"kind": "A_vs_B", "stem": "dlg-00005-087", "turn": 6, "substance": "differs", "why": "Y accepts less than one; X claims one and a half"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 6, "substance": "same", "why": "Identical openings accepting four, going up"}
+{"kind": "A_vs_B", "stem": "dlg-00005-123", "turn": 4, "substance": "differs", "why": "X confirms zero; Y says two is right, slope two"}
+{"kind": "A_vs_B", "stem": "dlg-00005-073", "turn": 8, "substance": "same", "why": "Both accept nearer one, wave climbs about one per step"}
+{"kind": "A_vs_B", "stem": "dlg-00005-027", "turn": 4, "substance": "same", "why": "Both confirm slope two at zero; Y's 'falling' is a slip"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-063", "turn": 2, "substance": "same", "why": "Both accept about 0.2, climbs two per one"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-081", "turn": 6, "substance": "same", "why": "Both agree flat at the peak; identical openings"}
+{"kind": "A_vs_B", "stem": "dlg-00005-110", "turn": 0, "substance": "same", "why": "Both build from sine wave at zero, ask a tenth step"}
+{"kind": "A_vs_B", "stem": "dlg-00005-073", "turn": 4, "substance": "same", "why": "Both accept flat, test a tenth past the peak, find a fall"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-081", "turn": 0, "substance": "differs", "why": "Same move, but X uses sine at one, Y cubic at zero"}
+{"kind": "A_vs_B", "stem": "dlg-00005-010", "turn": 6, "substance": "same", "why": "Both confirm 15.75 and its working"}
+{"kind": "A_vs_B", "stem": "dlg-00005-056", "turn": 4, "substance": "differs", "why": "X says one, concludes slope zero; Y accepts minus one"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 0, "substance": "same", "why": "Both agree, start at zero, ask about a tenth step"}
+{"kind": "A_vs_B", "stem": "dlg-00005-087", "turn": 2, "substance": "same", "why": "Both accept 2.961, slope 9.61"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 6, "substance": "same", "why": "Both confirm minus two, ask at minus 1.5"}
+{"kind": "A_vs_B", "stem": "dlg-00005-027", "turn": 6, "substance": "same", "why": "Both confirm zero, flat at the peak"}
+{"kind": "A_vs_B", "stem": "dlg-00005-038", "turn": 8, "substance": "same", "why": "Both accept slope-equals-height; X misquotes the number"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 0, "substance": "same", "why": "Both start the cubic at minus two, nudge to minus one"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-038", "turn": 0, "substance": "same", "why": "Identical openings: rate of change, hump and dip, start at zero"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 2, "substance": "same", "why": "Both accept two tenths again, slope two"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-110", "turn": 6, "substance": "same", "why": "Both confirm minus three at one and a half"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-027", "turn": 8, "substance": "same", "why": "Both confirm minus 0.83; X's later minus 3.13 is a slip"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-087", "turn": 4, "substance": "same", "why": "Both accept 0.1 rather than testing it"}
+{"kind": "A_vs_B", "stem": "dlg-00005-123", "turn": 2, "substance": "same", "why": "Both accept 0.3, then compute a smaller rise"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-038", "turn": 4, "substance": "differs", "why": "X ends at slope nine at two; Y confirms slope two"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-110", "turn": 2, "substance": "differs", "why": "X says the hill drops past one half; Y says it rises"}
+{"kind": "A_vs_B", "stem": "dlg-00005-027", "turn": 2, "substance": "differs", "why": "Both round to two; X calls slope two, Y level, slope zero"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 4, "substance": "same", "why": "Identical: agree it climbs, claim three per step"}
+{"kind": "A_vs_B", "stem": "dlg-00005-087", "turn": 4, "substance": "same", "why": "Both accept 0.1 as right for a low curve"}
+{"kind": "A_vs_B", "stem": "dlg-00005-063", "turn": 2, "substance": "same", "why": "Both accept about 0.2, climbs twice the step"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-123", "turn": 0, "substance": "same", "why": "Both start the sine wave and ask about a nudge"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-091", "turn": 4, "substance": "same", "why": "Both confirm two, climbing at minus one"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 8, "substance": "same", "why": "Both accept nearer one, identical openings; slope numbers garbled"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 8, "substance": "same", "why": "Both confirm minus one, ask about x two"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 2, "substance": "same", "why": "Both accept two tenths, slope two at 1.57"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-094", "turn": 4, "substance": "same", "why": "Both confirm two at the crossing"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-081", "turn": 2, "substance": "differs", "why": "X says near top, barely climbing; Y says one per one"}
+{"kind": "A_vs_B", "stem": "dlg-00005-063", "turn": 0, "substance": "differs", "why": "X frames a test on cubic; Y affirms, uses sine"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-110", "turn": 8, "substance": "same", "why": "Both confirm minus two at one"}
+{"kind": "A_vs_B", "stem": "dlg-00005-073", "turn": 0, "substance": "differs", "why": "Both agree; X uses sine at zero, Y cubic at minus two"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-123", "turn": 4, "substance": "same", "why": "Both confirm zero, level at one"}
+{"kind": "A_vs_B", "stem": "dlg-00005-081", "turn": 0, "substance": "same", "why": "Both start the cubic, ask about a nudge"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-123", "turn": 8, "substance": "differs", "why": "X says it falls 2.25 per step; Y says it levels flat"}
+{"kind": "A_vs_B", "stem": "dlg-00005-010", "turn": 8, "substance": "same", "why": "Both accept about nine tenths, gentler"}
+{"kind": "A_vs_B", "stem": "dlg-00005-038", "turn": 0, "substance": "same", "why": "Both open identically on the cubic; different start points"}
+{"kind": "A_vs_B", "stem": "dlg-00005-010", "turn": 0, "substance": "same", "why": "Both answers are only 'a'; nothing said"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-027", "turn": 4, "substance": "same", "why": "Both confirm slope two at zero"}
+{"kind": "A_vs_B", "stem": "dlg-00005-074", "turn": 8, "substance": "differs", "why": "X gives minus 2.5 at one half; Y accepts three there"}
+{"kind": "A_vs_B", "stem": "dlg-00005-091", "turn": 0, "substance": "differs", "why": "X starts the cubic; Y explains nudging, uses sine"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 6, "substance": "same", "why": "Both accept four, doubling rule"}
+{"kind": "A_vs_B", "stem": "dlg-00005-110", "turn": 6, "substance": "same", "why": "Both confirm minus three at one and a half"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-074", "turn": 0, "substance": "differs", "why": "X affirms one slope; Y calls it a guess to test"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 2, "substance": "differs", "why": "Both say flat; X then gives slope minus one, Y zero"}
+{"kind": "A_vs_B", "stem": "dlg-00005-123", "turn": 0, "substance": "differs", "why": "X builds on sine wave at one; Y on cubic at two"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-056", "turn": 0, "substance": "differs", "why": "Y says how fast it moves; X calls it guess, wave height"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-038", "turn": 6, "substance": "same", "why": "Both accept minus three, sinking into the dip"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-056", "turn": 2, "substance": "same", "why": "Both confirm two, slope and height differ"}
+{"kind": "typed_vs_A", "stem": "dlg-00005-063", "turn": 6, "substance": "same", "why": "Both confirm less than two"}
+{"kind": "main_B", "stem": "dlg-00005-010", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 0.96 as tape does"}
+{"kind": "main_typed", "stem": "dlg-00005-094", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about a tenth, as tape"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses 'flat'; tape refutes height-means-flat"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "'it does' endorses one slope; tape tests it"}
+{"kind": "main_typed", "stem": "dlg-00005-087", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees under once, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-038", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses 1.1 from height; tape refutes"}
+{"kind": "main_B", "stem": "dlg-00005-074", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees it falls, but invents 'two'"}
+{"kind": "main_typed", "stem": "dlg-00005-056", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses minus one; tape says that's the height"}
+{"kind": "main_A", "stem": "dlg-00005-056", "turn": 4, "engages": "no", "verdict": "agree", "matches_tape": "no", "why": "says 'yes, one', garbles pupil's minus one"}
+{"kind": "main_A", "stem": "dlg-00005-087", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "takes up how-to, works on numbers like tape"}
+{"kind": "main_typed", "stem": "dlg-00005-038", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three, as tape"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees nearer one, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-038", "turn": 8, "engages": "no", "verdict": "agree", "matches_tape": "no", "why": "says yes to minus 1.5, pupil said 1.1"}
+{"kind": "main_B", "stem": "dlg-00005-063", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses steeper means higher; tape corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-063", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses two at peak; tape shows barely moves"}
+{"kind": "main_A", "stem": "dlg-00005-073", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees nearer one, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-091", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees four going up, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-094", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 0.83, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-073", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees nearer one, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-081", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses less at zero; tape shows steeper"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees four and doubling rule"}
+{"kind": "main_A", "stem": "dlg-00005-063", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about 0.2, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-123", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-063", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees less than two, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-074", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees only slightly, then tests, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-081", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees flat top, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-027", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 0.83, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-087", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees less than once, as tape"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees nearer one, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-056", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses 1.25 from height; tape shows three"}
+{"kind": "main_typed", "stem": "dlg-00005-081", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees flat top, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-010", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses 0.9; tape shows drop of 1.5"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "calls flat fair, confirms zero slope"}
+{"kind": "main_B", "stem": "dlg-00005-063", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about 0.2, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-056", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses minus one; tape says that's height"}
+{"kind": "main_typed", "stem": "dlg-00005-073", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees nearer one, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-063", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses two at peak; tape refutes"}
+{"kind": "main_B", "stem": "dlg-00005-056", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees one via doubling, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-094", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how-to with numbers, like tape"}
+{"kind": "main_B", "stem": "dlg-00005-027", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-027", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "fair question, let's test; tape also tests"}
+{"kind": "main_B", "stem": "dlg-00005-038", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees barely, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-091", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees going up, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-027", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 0.83, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-010", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees nine per step, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-027", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "natural guess, test with numbers, like tape"}
+{"kind": "main_B", "stem": "dlg-00005-094", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees zero at top, as tape"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses one slope; tape tests and refutes"}
+{"kind": "main_B", "stem": "dlg-00005-110", "turn": 0, "engages": "no", "verdict": "na", "matches_tape": "no", "why": "'test that' though pupil asked to build up"}
+{"kind": "main_B", "stem": "dlg-00005-073", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses one slope; tape refutes"}
+{"kind": "main_B", "stem": "dlg-00005-091", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how to find slope, then numbers"}
+{"kind": "main_A", "stem": "dlg-00005-110", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees one falling, drops sign; tape agrees"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees flat at peak, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-081", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees flat top, as tape"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses zero slope; tape shows steep"}
+{"kind": "main_A", "stem": "dlg-00005-091", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses flat; tape refutes"}
+{"kind": "main_typed", "stem": "dlg-00005-073", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "tests one-slope claim with numbers, like tape"}
+{"kind": "main_A", "stem": "dlg-00005-027", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees zero at peak, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-110", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses steeper means higher; tape refutes"}
+{"kind": "main_typed", "stem": "dlg-00005-123", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says right to 0.3; tape shows tiny rise"}
+{"kind": "main_A", "stem": "dlg-00005-081", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses less at zero; tape shows steeper"}
+{"kind": "main_typed", "stem": "dlg-00005-110", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-094", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about 0.1, as tape"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "tests claim with numbers, like tape"}
+{"kind": "main_B", "stem": "dlg-00005-110", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says right to misconception, then proposes test"}
+{"kind": "main_B", "stem": "dlg-00005-110", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two, as tape"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "good question, work numbers, like tape"}
+{"kind": "main_A", "stem": "dlg-00005-073", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses one slope; tape refutes"}
+{"kind": "main_A", "stem": "dlg-00005-073", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees falls steeply, drops sign; tape agrees"}
+{"kind": "main_B", "stem": "dlg-00005-073", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-087", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how-to with numbers, like tape"}
+{"kind": "main_typed", "stem": "dlg-00005-056", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses 1.25 as slope; tape refutes"}
+{"kind": "main_typed", "stem": "dlg-00005-081", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 1.78, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-094", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees steepest at zero; later says one"}
+{"kind": "main_typed", "stem": "dlg-00005-087", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how-to, second height, like tape"}
+{"kind": "main_A", "stem": "dlg-00005-056", "turn": 8, "engages": "no", "verdict": "agree", "matches_tape": "no", "why": "bare yes, own sums; never takes up 1.25"}
+{"kind": "main_A", "stem": "dlg-00005-081", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says right to height reasoning; tape refutes"}
+{"kind": "main_A", "stem": "dlg-00005-074", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "'it does' endorses one slope; tape tests"}
+{"kind": "main_A", "stem": "dlg-00005-110", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-027", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-091", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two climbing, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-087", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses two from height; tape shows nine"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses one slope; tape refutes"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus twice x rule, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-074", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says right minus three, muddles 2.5; tape corrects"}
+{"kind": "main_B", "stem": "dlg-00005-094", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how to find steepness, like tape"}
+{"kind": "main_A", "stem": "dlg-00005-110", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-091", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "nudge input, watch output, like tape"}
+{"kind": "main_typed", "stem": "dlg-00005-123", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "sure, builds on numbers, like tape"}
+{"kind": "main_B", "stem": "dlg-00005-038", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers what it tells, works numbers"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses flat; tape refutes"}
+{"kind": "main_A", "stem": "dlg-00005-094", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how-to with numbers, like tape"}
+{"kind": "main_typed", "stem": "dlg-00005-074", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees down, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-081", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses less at zero; tape shows steeper"}
+{"kind": "main_B", "stem": "dlg-00005-087", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses 0.1; tape shows drop of three"}
+{"kind": "main_typed", "stem": "dlg-00005-056", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two climbing, as tape"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses one slope; tape refutes"}
+{"kind": "main_typed", "stem": "dlg-00005-110", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses up; tape tests and refutes"}
+{"kind": "main_typed", "stem": "dlg-00005-110", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "sure, builds on numbers, like tape"}
+{"kind": "main_A", "stem": "dlg-00005-091", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees four, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-056", "turn": 0, "engages": "yes", "verdict": "correct", "matches_tape": "yes", "why": "says how fast, not height; tape says not quite"}
+{"kind": "main_B", "stem": "dlg-00005-087", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses two from height; tape shows nine"}
+{"kind": "main_B", "stem": "dlg-00005-010", "turn": 0, "engages": "no", "verdict": "na", "matches_tape": "no", "why": "answer is just 'a', no content"}
+{"kind": "main_B", "stem": "dlg-00005-091", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees four, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-063", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees down, as tape"}
+{"kind": "main_A", "stem": "dlg-00005-010", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 15.75 and working, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-110", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-074", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "endorses zero via one slope; tape refutes"}
+{"kind": "main_typed", "stem": "dlg-00005-063", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees down, as tape"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees going up, as tape"}
+{"kind": "main_typed", "stem": "dlg-00005-010", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "defines derivative, works numbers, like tape"}
+{"kind": "main_A", "stem": "dlg-00005-073", "turn": 0, "engages": "no", "verdict": "agree", "matches_tape": "no", "why": "filler 'right', ignores one-slope question; tape tests"}
+{"kind": "main_A", "stem": "dlg-00005-110", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "tries it with numbers, like tape building"}
+{"kind": "main_typed", "stem": "dlg-00005-094", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 0.83, same as tape"}
+{"kind": "main_A", "stem": "dlg-00005-038", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees, says three dropping the minus"}
+{"kind": "main_typed", "stem": "dlg-00005-123", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees zero, reuses barely moved"}
+{"kind": "main_typed", "stem": "dlg-00005-073", "turn": 4, "engages": "yes", "verdict": "correct", "matches_tape": "no", "why": "calls flat a guess, tests, says minus one"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "minus two holds, same as tape"}
+{"kind": "main_A", "stem": "dlg-00005-091", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus one via twice x"}
+{"kind": "main_A", "stem": "dlg-00005-010", "turn": 0, "engages": "no", "verdict": "na", "matches_tape": "no", "why": "answer is just 'a', no uptake"}
+{"kind": "main_B", "stem": "dlg-00005-010", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees 0.9; tape corrects to 1.5"}
+{"kind": "main_A", "stem": "dlg-00005-010", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees less than nine; tape shows nine"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says right; tape tests one-slope claim"}
+{"kind": "main_A", "stem": "dlg-00005-038", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees barely moves, later says slope three"}
+{"kind": "main_typed", "stem": "dlg-00005-087", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 2.961, quotes it"}
+{"kind": "main_A", "stem": "dlg-00005-087", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "says yes but misquotes as one and a half"}
+{"kind": "main_typed", "stem": "dlg-00005-038", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees barely, as tape"}
+{"kind": "main_B", "stem": "dlg-00005-074", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "affirms one slope; tape sets up a test"}
+{"kind": "main_typed", "stem": "dlg-00005-123", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 2.25"}
+{"kind": "control_B", "stem": "dlg-00005-091", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers how to find slope, goes to numbers"}
+{"kind": "main_B", "stem": "dlg-00005-073", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "flat is right, later drifts to minus one"}
+{"kind": "main_B", "stem": "dlg-00005-056", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says it's both; tape says not quite"}
+{"kind": "main_A", "stem": "dlg-00005-094", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees zero at the top"}
+{"kind": "main_typed", "stem": "dlg-00005-091", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees flat; tape corrects to minus two"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus one"}
+{"kind": "main_B", "stem": "dlg-00005-087", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees climbs fast, uses 2.961"}
+{"kind": "main_B", "stem": "dlg-00005-056", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees still climbing, slope two"}
+{"kind": "main_A", "stem": "dlg-00005-063", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees steepness is height; tape corrects"}
+{"kind": "main_B", "stem": "dlg-00005-123", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "takes up build-up request, works numbers"}
+{"kind": "main_B", "stem": "dlg-00005-081", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about 1.78"}
+{"kind": "main_A", "stem": "dlg-00005-056", "turn": 0, "engages": "yes", "verdict": "none", "matches_tape": "no", "why": "calls it natural guess, no correction; tape says not quite"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees four, doubling rule"}
+{"kind": "main_typed", "stem": "dlg-00005-110", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two"}
+{"kind": "main_typed", "stem": "dlg-00005-074", "turn": 2, "engages": "yes", "verdict": "none", "matches_tape": "no", "why": "fair guess, lets test; tape agrees"}
+{"kind": "main_B", "stem": "dlg-00005-010", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 15.75, reuses working"}
+{"kind": "main_typed", "stem": "dlg-00005-110", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus one"}
+{"kind": "main_A", "stem": "dlg-00005-091", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, climbing"}
+{"kind": "main_A", "stem": "dlg-00005-074", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees it falls"}
+{"kind": "main_typed", "stem": "dlg-00005-074", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees zero; tape corrects to nine"}
+{"kind": "main_typed", "stem": "dlg-00005-027", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees zero at peak"}
+{"kind": "main_typed", "stem": "dlg-00005-073", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "minus two holds"}
+{"kind": "main_typed", "stem": "dlg-00005-010", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees 0.9; tape corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-063", "turn": 0, "engages": "yes", "verdict": "none", "matches_tape": "no", "why": "just proposes a test; tape corrects hunch"}
+{"kind": "main_B", "stem": "dlg-00005-091", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus twice x rule"}
+{"kind": "main_A", "stem": "dlg-00005-081", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "takes up question, works numbers"}
+{"kind": "main_typed", "stem": "dlg-00005-010", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees less than nine; tape shows nine"}
+{"kind": "main_B", "stem": "dlg-00005-010", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees less than nine; tape shows nine"}
+{"kind": "main_A", "stem": "dlg-00005-010", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees, about nine tenths"}
+{"kind": "main_A", "stem": "dlg-00005-073", "turn": 4, "engages": "yes", "verdict": "correct", "matches_tape": "no", "why": "fair guess, then minus 1.39; tape agrees zero"}
+{"kind": "main_A", "stem": "dlg-00005-063", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees two at peak; tape finds level"}
+{"kind": "main_B", "stem": "dlg-00005-123", "turn": 4, "engages": "no", "verdict": "none", "matches_tape": "no", "why": "says two is right; pupil said zero"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, climbing"}
+{"kind": "main_A", "stem": "dlg-00005-087", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees 0.1; tape tests and corrects"}
+{"kind": "main_B", "stem": "dlg-00005-123", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two and a quarter"}
+{"kind": "main_A", "stem": "dlg-00005-081", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about 1.78"}
+{"kind": "main_typed", "stem": "dlg-00005-027", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 1.68, twice sine of one"}
+{"kind": "main_typed", "stem": "dlg-00005-094", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees zero at top"}
+{"kind": "main_A", "stem": "dlg-00005-123", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "zero is right, reason holds"}
+{"kind": "main_B", "stem": "dlg-00005-081", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers with numbers approach"}
+{"kind": "main_B", "stem": "dlg-00005-123", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "says right to 0.3; tape tests and corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-010", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees 15.75, reuses working"}
+{"kind": "main_typed", "stem": "dlg-00005-074", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees three; tape corrects to 2.25"}
+{"kind": "main_typed", "stem": "dlg-00005-073", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees one slope; tape tests and corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-074", "turn": 0, "engages": "yes", "verdict": "none", "matches_tape": "yes", "why": "natural guess, test it; tape also tests"}
+{"kind": "main_A", "stem": "dlg-00005-094", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two at the crossing"}
+{"kind": "main_typed", "stem": "dlg-00005-091", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus one"}
+{"kind": "main_A", "stem": "dlg-00005-123", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two and a quarter"}
+{"kind": "main_typed", "stem": "dlg-00005-063", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about two tenths"}
+{"kind": "main_A", "stem": "dlg-00005-087", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees two; tape corrects to nine"}
+{"kind": "main_B", "stem": "dlg-00005-074", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "says right, then claims slope three"}
+{"kind": "main_B", "stem": "dlg-00005-094", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 0.83"}
+{"kind": "main_A", "stem": "dlg-00005-123", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees 0.3; tape corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-038", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees 1.1; tape corrects to 3.75"}
+{"kind": "main_typed", "stem": "dlg-00005-038", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees two; tape corrects to nine"}
+{"kind": "main_B", "stem": "dlg-00005-094", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees about 0.1"}
+{"kind": "main_typed", "stem": "dlg-00005-081", "turn": 8, "engages": "yes", "verdict": "correct", "matches_tape": "yes", "why": "grants it's high but says it falls"}
+{"kind": "main_typed", "stem": "dlg-00005-038", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers what it tells, then numbers"}
+{"kind": "main_typed", "stem": "dlg-00005-027", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, reuses tenth-step reason"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees four, going up"}
+{"kind": "main_B", "stem": "dlg-00005-110", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "says right, then tests and contradicts"}
+{"kind": "main_A", "stem": "dlg-00005-038", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers what it tells, then numbers"}
+{"kind": "main_typed", "stem": "dlg-00005-087", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees about a tenth; tape corrects"}
+{"kind": "main_B", "stem": "dlg-00005-073", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "affirms one slope; tape tests it"}
+{"kind": "main_B", "stem": "dlg-00005-038", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees two; tape corrects to nine"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, climbing"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus two"}
+{"kind": "main_A", "stem": "dlg-00005-056", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two, still climbing"}
+{"kind": "main_A", "stem": "dlg-00005-123", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees, says three dropping minus"}
+{"kind": "main_A", "stem": "dlg-00005-063", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees it falls past top"}
+{"kind": "main_B", "stem": "dlg-00005-091", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees flat; tape corrects to minus two"}
+{"kind": "control_typed", "stem": "dlg-00005-073", "turn": 4, "engages": "yes", "verdict": "correct", "matches_tape": "no", "why": "calls flat a guess, ends slope three"}
+{"kind": "main_B", "stem": "dlg-00005-027", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees flat for a moment"}
+{"kind": "main_B", "stem": "dlg-00005-123", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three"}
+{"kind": "main_A", "stem": "dlg-00005-063", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees less than two"}
+{"kind": "control_B", "stem": "dlg-00005-073", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "minus two holds"}
+{"kind": "control_A", "stem": "dlg-00005-073", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "nearer one holds"}
+{"kind": "main_B", "stem": "dlg-00005-081", "turn": 8, "engages": "yes", "verdict": "correct", "matches_tape": "yes", "why": "grants high, says it falls"}
+{"kind": "main_A", "stem": "dlg-00005-027", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "says right but makes it two"}
+{"kind": "main_B", "stem": "dlg-00005-063", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees less than two"}
+{"kind": "main_B", "stem": "dlg-00005-038", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus three"}
+{"kind": "control_typed", "stem": "dlg-00005-091", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus one via twice x"}
+{"kind": "main_typed", "stem": "dlg-00005-027", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees minus 0.83"}
+{"kind": "main_typed", "stem": "dlg-00005-094", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees two at crossing"}
+{"kind": "main_A", "stem": "dlg-00005-038", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees two; tape corrects to nine"}
+{"kind": "main_B", "stem": "dlg-00005-027", "turn": 0, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "affirms one number; tape only grants slope"}
+{"kind": "main_A", "stem": "dlg-00005-074", "turn": 8, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees three; tape corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-091", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "good question, works numbers like tape"}
+{"kind": "main_A", "stem": "dlg-00005-056", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "says yes but misquotes as two"}
+{"kind": "main_A", "stem": "dlg-00005-074", "turn": 4, "engages": "yes", "verdict": "agree", "matches_tape": "no", "why": "agrees one slope; tape corrects"}
+{"kind": "main_typed", "stem": "dlg-00005-056", "turn": 6, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees one, doubling rule"}
+{"kind": "main_A", "stem": "dlg-00005-123", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "takes up request, works numbers"}
+{"kind": "control_A", "stem": "dlg-00005-091", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers: nudge input, see output"}
+{"kind": "main_typed", "stem": "dlg-00005-081", "turn": 0, "engages": "yes", "verdict": "na", "matches_tape": "yes", "why": "answers with numbers approach"}
+{"kind": "main_A", "stem": "dlg-00005-087", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "agrees climbs fast, 2.961"}
+{"kind": "main_B", "stem": "dlg-00005-027", "turn": 2, "engages": "yes", "verdict": "agree", "matches_tape": "yes", "why": "says right but makes it about two"}

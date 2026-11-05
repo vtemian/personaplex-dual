@@ -2041,3 +2041,18 @@ Commit `docs: ladder 2, rank and LR at 117 dialogues, three epochs, two seeds`, 
 - **Smoke:** `ladder2-smoke-r4` (slice 8, 1 epoch, rank 4) ran to the end and was measured, to prove that the attach and the measure work at a non-default rank.
 - **The freeze:** the first r4 train froze the box (`NVRM NV_ERR_NO_MEMORY`) on 11-04 at 14:52. drama3 had been restarted by someone and was running beside it. Vlad power-cycled the box, and r4 was rerun from scratch with the cap. The cap bounds PyTorch's allocator only, so GPU runs still need drama3 down. A Mac-side watchdog stopped drama3 during the rerun if it reappeared.
 - **The verdict rule** was changed twice before any result: R_gap decides, then the gap guard. See B6.0.2. The results are in `docs/results/ladder-2.md`.
+
+## Batch B7: side by side (2026-11-05)
+
+Vlad, at the ladder-2 gate: "ok, do the side by side check first". The request: before picking among an alignment loss, the bar, the engine or more data, read what a trained model says after a typed pupil turn and after the same turn spoken. No bar change, no training.
+
+- **Code:**
+  - `src/dual/sidebyside.py`, pure: the LMGen step alignment against `LMModel.forward`'s layout, and batch packing.
+  - `src/dual/sbs_report.py`, pure: word-level statistics and the per-turn tables. Two silent answers are counted apart.
+  - `src/dual/jobs/sidebyside.py` and `make sidebyside`: greedy decoding of every holdout pupil turn as typed, A and B, for bare and one checkpoint. Batched with LMGen's per-item exec mask, and each batch's KV ring cut to its longest item.
+- **As run:**
+  - `sbs-1`: bare plus `ladder-personaplex-1` epoch 2, 65 turns x 3 renderings.
+  - `sbs-1-ctl`: the same rows for 10 turns, in other batch shapes.
+  - About 84 GPU-minutes in all.
+  - Blind substance labels by model judges.
+- **Results:** `docs/results/side-by-side-1.md`. Typed vs A differs in substance in 21/65 turns and A vs B in 23/65. The same row in another batch shape differs in 6/30. The tutor takes up the pupil's turn after 65/65 typed turns and 61/65 for each voice.
