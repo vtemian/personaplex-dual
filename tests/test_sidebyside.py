@@ -256,3 +256,43 @@ def test_schedule_true_batches_first_and_unchanged():
     for batch in got:
         assert len({it.rendering.endswith("-swap") for it in batch}) == 1
     assert schedule([], swap, 1000, 4) == pack(swap, 1000, 4)
+
+
+@pytest.mark.parametrize("rendering", ["typed", "A"])
+def test_swap_row_keeps_the_true_row_but_the_swapped_turn(rendering):
+    from dual.render import holdout_record, holdout_row
+    from test_render import VOICES, base, two_ask_spans, typed, voiced
+
+    def other_typed(words):
+        return [900 + i for i in range(len(words) + 3)]
+
+    def other_voiced(words, voice):
+        return [[len(voice) + 40] * 8] * (5 * len(words) + 1)
+
+    rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
+    donor = holdout_record(
+        "donor", two_ask_spans(), base(), other_typed, other_voiced, VOICES
+    )
+    t = 2
+    true_row, (ts, te) = holdout_row(rec, t, rendering)
+    row, (s, e) = holdout_row(swap_record(rec, t, donor), t, rendering)
+    assert row["frames"] != true_row["frames"]  # the swapped turn's length differs
+
+    def part(r, span, key):
+        return r[key][span["start"] : span["end"]]
+
+    keys = ("text", "own", "pupil", "scored")
+    assert row["text"][s:e] == true_row["text"][ts:te]
+    assert row["scored"][s:e] == true_row["scored"][ts:te]
+    assert [x["party"] for x in row["spans"]] == [x["party"] for x in true_row["spans"]]
+    for i, (a, b) in enumerate(zip(row["spans"], true_row["spans"], strict=True)):
+        if i == t:
+            continue
+        assert a["rendering"] == b["rendering"]
+        for k in keys:
+            assert part(row, a, k) == part(true_row, b, k), (i, k)
+    d = donor["renderings"][str(t)][rendering]
+    mine = row["spans"][t]
+    assert part(row, mine, "text") == d["text"]
+    assert part(row, mine, "own") == d["own"]
+    assert part(row, mine, "pupil") == d["pupil"]

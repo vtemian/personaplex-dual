@@ -238,3 +238,12 @@ def test_main_quality(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
     assert "repetitive" in out and "typed vs A" in out and "### s1" in out
     main([str(p)])
     assert "repetitive" not in capsys.readouterr().out
+
+
+def test_quality_table_refuses_duplicates():
+    rows = [qrow("m", "typed", "a b", [3, 3]), qrow("m", "typed", "a b", [3, 3])]
+    with pytest.raises(ValueError, match="duplicate"):
+        quality_table(rows, ["m"])
+    swap = [qrow("m", "typed-swap", "a", [3]), qrow("m", "typed-swap", "a", [3])]
+    with pytest.raises(ValueError, match="duplicate"):
+        quality_table(swap, ["m"])
