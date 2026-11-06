@@ -2113,3 +2113,11 @@ The bucket tables (content and all frames) and the bar-from-position table, for 
     - `dual.position` refuses empty input.
     - The measure job's epoch check raises instead of asserting.
     - A test pins that the lead is in the no-cut all-frame bar and out from position 0.
+
+## Batch B9: consistency loss (2026-11-05)
+
+Vlad, at the bar-by-position gate: "Add a consistency loss (Recommended). Keep the content bar. Plan a distillation/consistency loss: typed rendering trained toward the frozen model's distribution after the spoken rendering. Needs a /plan-it style plan first, then training."
+
+Plan: `docs/plans/2026-11-05-consistency-loss.md`. The teacher is the live student with stop-gradient on the stem's all-tape spoken row. The term is λ = 10 · KL(typed answer ‖ spoken answer) on the answer content frames after each typed turn. The pilot is the ladder recipe otherwise unchanged.
+
+Result (`docs/results/consistency-1.md`): the first change to move the ratio. R_gap went from 3.00 to 1.90 ("down", both CIs exclude 0), and R is 1.67 at epoch 2. The gap, typed‖A, reached tape‖A, the tape ceiling. The bar still does not pass. Every KL shrank, so a side-by-side check comes first. GATE-1 is pending.
