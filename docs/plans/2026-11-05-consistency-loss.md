@@ -1344,3 +1344,60 @@ Files: `src/dual/sbs_report.py`, `tests/test_sbs_report.py` (nothing else).
     - there is no mid-lesson behavioural gain, only converged wording;
     - the turn-0 collapse is not B9's pooled position-0 divergence, which is mid-lesson. At turn 0, typed and A agree more under teacher forcing (lead-frame gap 0.095 against 0.736), so the bar is blind to it;
     - step two would use a new voice D, not A or B (the bar's voices) and not C (the door).
+
+## Batch B11: side by side 3, the pilot's epoch 1 (2026-11-06)
+
+Vlad, at B10's GATE ("The pilot listens mid-lesson but goes silent after the spoken opening question. Which fix next?"): **"Check epoch 1 first"**. This batch runs no training, renders nothing and changes no code. It ends at a GATE.
+
+**The question.** Is the lesson opening already broken at epoch 1 (R_gap 1.90, held text +7.7%)?
+- **Broken at epoch 1 too:** the collapse comes with the term from the start, so the lever is λ or the opening's place in the term, not training length.
+- **Healthy at epoch 1, broken at epoch 2:** it grows with training, so fewer steps (or early stop) is a lever, and λ 3 a likely one.
+
+**Comparable to B10 by construction.** Same image (`sbs2:72868db`), job, holdout (65 turns), renderings (typed, A, B), greedy decode, budget 48,000, max batch 64, `--swap-turns 2,6`. Only `--epoch 1` changes, so the true rows land in B7's and B10's batch shapes. The baseline's answers (B7's true rows, B10's swap rows) and the epoch-2 answers are reused, not re-decoded.
+
+### Task B11.1: run it (the orchestrator)
+
+- drama3 stays stopped; the watchdog runs while the job runs. `--mem-cap-gib 64`, one job.
+- `sbs-3`: `--run cons1-pp-l10 --epoch 1 --no-bare --swap-turns 2,6`. That is 195 true and 52 swap rows, ~57 GPU-minutes.
+
+### Task B11.2: GPU-free side reads (model: sonnet)
+
+- From the pilot's train log: the consistency term per step and epoch, and per pupil-turn index if logged (the opening's share).
+- From B9's measure outputs: turn-0 lead and first-content-frame KL(typed‖A) at epoch 1, next to epoch 2 and the baseline; and, if the outputs hold the distributions, whether the pilot puts more mass on `<pad>` at the opening after spoken turns than the baseline does (B10's untested reading).
+
+### Task B11.3: blind judging (opus judges) and `docs/results/side-by-side-3.md`
+
+- B10's protocol verbatim (pair, answer and swap rubrics from `side-by-side-2/judge-prompts.txt`). Epoch-1 answers are pooled with epoch-2's and the baseline's, so the three share judges. B10's labels are kept for comparison.
+- **The doc:** epoch 1 next to epoch 2 and the baseline, for every B10 table: substance, uptake (all, turns 2-8, turn 0), swap, onset and quality, first word. Plus the side reads and a one-paragraph answer: is the opening broken at epoch 1, and what that says about the lever.
+- Sonnet review, opus review, merge `--no-ff`, the plan records the run, a memory note. End at a GATE: (i) λ 10 without the opening answer in the term, (ii) λ 3, (iii) fewer epochs / early stop, (iv) TTS-voiced teacher rows in voice D.
+
+### B11 as run (2026-11-06)
+
+- **No code.** The job already takes `--epoch`.
+- **Job (image `sbs2:72868db`, drama3 stopped, watchdog on):** `job-20261106-121325-vlad-sbs-3`, `cons1-pp-l10` epoch 1.
+  - 195 true and 52 swap rows, in B10's exact batch shapes and donor map.
+  - 2,720 s of decoding (~48 GPU-minutes with load, against the ~57 estimated), peak 38.9 GiB.
+- **Judging:** 13 blind opus judges over 390 pairs, 585 answers and 312 swap items, all three checkpoints in one pool. On the shared items they agree with B10's labels in 238/260, 382/390 and 202/208.
+- **Result** (`docs/results/side-by-side-3.md`):
+  - **The opening is not silent at epoch 1.** It is silent in 0/13 after A and 0/13 after B, against 13/13 and 10/13 at epoch 2, so the silence grows with training. The turn-0 lead-frame KL(typed‖A) tightens over epochs 1-3: 0.54, 0.095, 0.061 (baseline 0.74).
+  - **But epoch 1 is not healthy.**
+    - The typed opening matches the tape's move in 1/13 and is well formed in 5/13.
+    - Mid-lesson, answers break off as fragments. They stop mid-sentence with ≥ 20% of the window left in 20/11/17 of 52 (typed/A/B), against 1/2/0 for the baseline and 0/1/1 at epoch 2. Most stop within the first tenth of the window, and median words on turns 2-8 are 41/57/38.
+    - Uptake holds (51/49/50). The swap count is 95/104, but all 9 misses are fragments or a loop.
+  - **Side reads:**
+    - The term is logged per step only, never per turn.
+    - It covers content frames only, so the lead frames are outside it.
+    - Turn 0 had the largest bare-model gap, 2-3× the other turns.
+    - P(`<pad>`) is not stored, so B10's reading stays untested.
+  - **Verdict:**
+    - At λ = 10 no decoded epoch is healthy, so an early stop is out.
+    - The epoch-1 fragments fit either the term or ordinary under-training. The baseline's epoch 1 was never decoded.
+    - The loss weight is the untested candidate.
+  - **GATE:** (ii) λ 3 is recommended, with a baseline epoch-1 decode (~45 GPU-minutes). The other options are (i) λ 10 without turn 0 (untested, since the term never sees the lead frames), (iii) early stop (not supported) and (iv) voice D.
+- **Reviews:**
+  - Sonnet: no blockers. Its fixes were the turns 2-8 medians, the lead-frame attribution and the table labels.
+  - Opus recomputed every number. Its corrections:
+    - hedge the lever claim (λ was never varied);
+    - epoch 1's swap misses are truncation;
+    - argue against (i) from epoch 2's swap misses, not epoch 1's truncation;
+    - the side-by-side costs ~1.6 GPU-hours, so (ii) is ~6.5.
