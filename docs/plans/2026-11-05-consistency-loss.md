@@ -1337,3 +1337,10 @@ Files: `src/dual/sbs_report.py`, `tests/test_sbs_report.py` (nothing else).
     - After the typed first question it starts on frame 8-9 instead of 3, and takes the question up in 8/13.
   - No mid-lesson first-word divergence at epoch 2.
   - **Verdict:** not healthy as a checkpoint. GATE: λ 3, the term without turn 0, an epoch-1 side-by-side, or step two anyway.
+- **Reviews:**
+  - Sonnet reviewed the code diff: no blockers. Its follow-ups are the swap-row test and the duplicate refusal.
+  - Opus reviewed before the merge and recomputed every number. The corrections:
+    - "neither" counts toward the bad reading, so the healthy bar (as often as the baseline) is not met;
+    - there is no mid-lesson behavioural gain, only converged wording;
+    - the turn-0 collapse is not B9's pooled position-0 divergence, which is mid-lesson. At turn 0, typed and A agree more under teacher forcing (lead-frame gap 0.095 against 0.736), so the bar is blind to it;
+    - step two would use a new voice D, not A or B (the bar's voices) and not C (the door).
