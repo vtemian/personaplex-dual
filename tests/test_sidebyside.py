@@ -1,16 +1,23 @@
+import json
+
 import pytest
 
 from dual.constants import CODEBOOKS
 from dual.sidebyside import (
     RENDERINGS,
+    SWAP_RENDERINGS,
     Item,
     StepInput,
+    answer_head,
     answer_words,
     batch_cap,
     item_of,
     pack,
+    pick_donors,
     same_words,
+    schedule,
     step_input,
+    swap_record,
 )
 
 T = 12
@@ -169,3 +176,123 @@ def test_answer_words():
 def test_same_words():
     assert same_words("The slope, is TWO.", "the slope is two")
     assert not same_words("the slope", "the slope is")
+
+
+def test_swap_renderings():
+    assert SWAP_RENDERINGS == ("typed", "A")
+
+
+def test_answer_head():
+    assert answer_head("Minus Three, because it is odd.") == "minus three"
+    assert answer_head("  Yes! It's  four ") == "yes its four"
+    assert answer_head(", only a tail") == ""
+
+
+def test_pick_donors_first_different_head_cyclically():
+    order = ["a", "b", "c", "d"]
+    heads = {}
+    for stem, h in zip(order, ["x", "x", "y", "x"], strict=True):
+        heads[(stem, 2)] = h
+    got = pick_donors(order, heads, [2])
+    assert got == {("a", 2): "c", ("b", 2): "c", ("c", 2): "d", ("d", 2): "c"}
+
+
+def test_pick_donors_skips_stems_without_the_turn_and_other_turns():
+    order = ["a", "b", "c"]
+    heads = {("a", 2): "x", ("c", 2): "y", ("a", 6): "x", ("b", 6): "z"}
+    got = pick_donors(order, heads, [2, 6])
+    assert got == {("a", 2): "c", ("c", 2): "a", ("a", 6): "b", ("b", 6): "a"}
+
+
+def test_pick_donors_ignores_turns_not_asked():
+    assert pick_donors(["a", "b"], {("a", 4): "x", ("b", 4): "y"}, [2]) == {}
+
+
+def test_pick_donors_raises_without_a_different_head():
+    with pytest.raises(ValueError):
+        pick_donors(["a", "b"], {("a", 2): "x", ("b", 2): "x"}, [2])
+
+
+def make_record(stem, tag):
+    return {
+        "id": stem,
+        "pupil_turns": [2, 6],
+        "base": {"keep": stem},
+        "renderings": {
+            "2": {"typed": {"text": [tag]}, "A": {"text": [tag, 1]}},
+            "6": {"typed": {"text": [tag + 10]}},
+        },
+    }
+
+
+def test_swap_record_takes_the_donors_rendering_without_mutating():
+    rec, don = make_record("a", 1), make_record("b", 2)
+    before = json.dumps(rec, sort_keys=True), json.dumps(don, sort_keys=True)
+    out = swap_record(rec, 2, don)
+    assert out["renderings"]["2"] == don["renderings"]["2"]
+    assert out["renderings"]["6"] == rec["renderings"]["6"]
+    assert out["id"] == "a" and out["base"] == rec["base"]
+    assert (json.dumps(rec, sort_keys=True), json.dumps(don, sort_keys=True)) == before
+    out["renderings"]["2"]["typed"]["text"].append(99)
+    assert don["renderings"]["2"]["typed"]["text"] == [2]
+
+
+def test_swap_record_refuses_non_pupil_turn():
+    rec, don = make_record("a", 1), make_record("b", 2)
+    with pytest.raises(ValueError):
+        swap_record(rec, 3, don)
+    don["pupil_turns"] = [6]
+    with pytest.raises(ValueError):
+        swap_record(rec, 2, don)
+
+
+def test_schedule_true_batches_first_and_unchanged():
+    true = [Item(f"s{i}", 2, "typed", 100 + 50 * i, 30) for i in range(10)]
+    swap = [Item(f"s{i}", 2, "typed-swap", 100 + 50 * i, 30) for i in range(10)]
+    got = schedule(true, swap, 1000, 4)
+    want = pack(true, 1000, 4)
+    assert got[: len(want)] == want
+    assert got[len(want) :] == pack(swap, 1000, 4)
+    for batch in got:
+        assert len({it.rendering.endswith("-swap") for it in batch}) == 1
+    assert schedule([], swap, 1000, 4) == pack(swap, 1000, 4)
+
+
+@pytest.mark.parametrize("rendering", ["typed", "A"])
+def test_swap_row_keeps_the_true_row_but_the_swapped_turn(rendering):
+    from dual.render import holdout_record, holdout_row
+    from test_render import VOICES, base, two_ask_spans, typed, voiced
+
+    def other_typed(words):
+        return [900 + i for i in range(len(words) + 3)]
+
+    def other_voiced(words, voice):
+        return [[len(voice) + 40] * 8] * (5 * len(words) + 1)
+
+    rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
+    donor = holdout_record(
+        "donor", two_ask_spans(), base(), other_typed, other_voiced, VOICES
+    )
+    t = 2
+    true_row, (ts, te) = holdout_row(rec, t, rendering)
+    row, (s, e) = holdout_row(swap_record(rec, t, donor), t, rendering)
+    assert row["frames"] != true_row["frames"]  # the swapped turn's length differs
+
+    def part(r, span, key):
+        return r[key][span["start"] : span["end"]]
+
+    keys = ("text", "own", "pupil", "scored")
+    assert row["text"][s:e] == true_row["text"][ts:te]
+    assert row["scored"][s:e] == true_row["scored"][ts:te]
+    assert [x["party"] for x in row["spans"]] == [x["party"] for x in true_row["spans"]]
+    for i, (a, b) in enumerate(zip(row["spans"], true_row["spans"], strict=True)):
+        if i == t:
+            continue
+        assert a["rendering"] == b["rendering"]
+        for k in keys:
+            assert part(row, a, k) == part(true_row, b, k), (i, k)
+    d = donor["renderings"][str(t)][rendering]
+    mine = row["spans"][t]
+    assert part(row, mine, "text") == d["text"]
+    assert part(row, mine, "own") == d["own"]
+    assert part(row, mine, "pupil") == d["pupil"]

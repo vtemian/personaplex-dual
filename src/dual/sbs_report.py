@@ -2,11 +2,13 @@
 
 `python -m dual.sbs_report rows.jsonl [--judgments j.jsonl] [--models a,b]` prints
 the pair statistics, the reader's judgment counts if given, and one block per turn.
+`--quality` adds the answer-quality and first-word tables.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
 import difflib
 import json
 import pathlib
@@ -14,6 +16,7 @@ import statistics
 from collections.abc import Sequence
 from typing import Any
 
+from dual.constants import PAD
 from dual.probe_text import words_of
 
 PAIRS = (("typed", "A"), ("A", "B"), ("typed", "B"))
@@ -47,6 +50,8 @@ def _index(
 ) -> dict[tuple[str, str, int, str], dict[str, Any]]:
     out: dict[tuple[str, str, int, str], dict[str, Any]] = {}
     for r in rows:
+        if r["rendering"] not in RENDERINGS:
+            continue  # swap renderings belong to the quality tables only
         key = (r["model"], r["stem"], int(r["turn"]), r["rendering"])
         if key in out:
             raise ValueError(f"duplicate row {key}")
@@ -147,6 +152,85 @@ def turn_blocks(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
     return "\n\n".join(blocks)
 
 
+def onset(ids: Sequence[int]) -> int | None:
+    """First answer-window frame with a non-PAD id (`<s>` counts); None if all PAD."""
+    return next((i for i, t in enumerate(ids) if int(t) != PAD), None)
+
+
+def _rendering_order(rd: str) -> tuple[int, str]:
+    return (RENDERINGS.index(rd), "") if rd in RENDERINGS else (len(RENDERINGS), rd)
+
+
+def _repetitive(answer: str) -> bool:
+    w = words_of(answer)
+    grams = collections.Counter(tuple(w[i : i + 4]) for i in range(len(w) - 3))
+    return any(c >= 3 for c in grams.values())
+
+
+def quality_table(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
+    seen: set[tuple[str, str, int, str]] = set()
+    for r in rows:
+        key = (r["model"], r["stem"], int(r["turn"]), r["rendering"])
+        if key in seen:
+            raise ValueError(f"duplicate row {key}")
+        seen.add(key)
+    body = []
+    for m in models:
+        mine = [r for r in rows if r["model"] == m]
+        for rd in sorted({r["rendering"] for r in mine}, key=_rendering_order):
+            rs = [r for r in mine if r["rendering"] == rd]
+            spoke = [r for r in rs if words_of(r["answer"])]
+            ons = [onset(r["ids"]) for r in spoke]
+            counts = [sum(o == k for o in ons) for k in range(4)]
+            other = sum(o is None or o > 3 for o in ons)
+            med = (
+                statistics.median(len(words_of(r["answer"])) for r in spoke)
+                if spoke
+                else None
+            )
+            body.append(
+                [
+                    m,
+                    rd,
+                    str(len(rs)),
+                    str(len(rs) - len(spoke)),
+                    *map(str, counts),
+                    str(other),
+                    "-" if med is None else f"{med:g}",
+                    str(sum(_repetitive(r["answer"]) for r in spoke)),
+                    str(
+                        sum(
+                            not r["answer"].strip().endswith((".", "?", "!"))
+                            for r in spoke
+                        )
+                    ),
+                ]
+            )
+    head = ["model", "rendering", "n", "silent", "onset 0", "onset 1", "onset 2"]
+    head += ["onset 3", "onset other", "median words", "repetitive", "unfinished"]
+    return _table(head, body)
+
+
+def first_word_table(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
+    idx = _index(rows)
+    body = []
+    for m in models:
+        for p, q in PAIRS:
+            firsts = [
+                (
+                    words_of(idx[(m, s, t, p)]["answer"]),
+                    words_of(idx[(m, s, t, q)]["answer"]),
+                )
+                for (mm, s, t, rd) in idx
+                if mm == m and rd == p and (m, s, t, q) in idx
+            ]
+            both = [(a[0], b[0]) for a, b in firsts if a and b]
+            body.append(
+                [m, f"{p} vs {q}", str(len(both)), str(sum(a == b for a, b in both))]
+            )
+    return _table(["model", "pair", "both spoke", "same first word"], body)
+
+
 def judgments_table(judgments: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
     body = []
     for m in models:
@@ -167,6 +251,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     ap.add_argument("rows", type=pathlib.Path)
     ap.add_argument("--judgments", type=pathlib.Path)
     ap.add_argument("--models")
+    ap.add_argument("--quality", action="store_true")
     a = ap.parse_args(argv)
     rows = load(a.rows)
     models = (
@@ -177,6 +262,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parts = [stats_table(rows, models)]
     if a.judgments:
         parts.append(judgments_table(load(a.judgments), models))
+    if a.quality:
+        parts += [quality_table(rows, models), first_word_table(rows, models)]
     parts.append(turn_blocks(rows, models))
     print("\n\n".join(parts))
 
