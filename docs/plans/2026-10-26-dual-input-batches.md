@@ -2134,13 +2134,11 @@ Vlad, at B10's GATE: "Check epoch 1 first". This batch is B10's side-by-side on 
 
 ## Batch B12: λ = 3 pilot (2026-11-06)
 
-Vlad, at B11's GATE: "Weight 3 + baseline epoch 1 decode (Recommended)". The run is `cons1-pp-l3`, identical to the λ = 10 pilot except the weight. All 3 epochs were measured, epochs 2 and 3 decoded side by side, and the baseline's own epoch 1 decoded too. The spec is in `docs/plans/2026-11-05-consistency-loss.md`, Batch B12.
+Vlad, at B11's GATE: "Weight 3 + baseline epoch 1 decode (Recommended)". The run is `cons1-pp-l3`, identical to the λ = 10 pilot except the weight. The spec is in `docs/plans/2026-11-05-consistency-loss.md`, Batch B12.
 
-Result (`docs/results/consistency-2.md`):
-- **No λ = 3 epoch is both healthy and better on the bar.**
-  - Epoch 3 restores the baseline's opening and has no fragments, at R 1.87. But it slips on following the pupil's turn (94/104 against 101/104).
-  - Epoch 2 listens like the baseline, but its typed opening starts late.
-- **The bar rule says "not moved"** (R_gap 2.51 at epoch 1).
-- **The baseline's epoch 1 is itself silent at the spoken opening and fragmented,** so B10's and B11's failures are early-training states, not artefacts of the term.
+Result (`docs/results/consistency-2.md`): no λ = 3 epoch is both healthy and better on the bar. The rule says "not moved" (R_gap 2.51).
+- Epoch 3 restores the opening at R 1.87. But it affirms what the pupil did not say more often: 94/104 against 101/104, p ≈ 0.09, with no epoch-3 λ = 0 control.
+- Epoch 2's typed opening starts late.
+- The baseline's own epoch 1 is silent at the spoken opening and fragmented, so those failures also occur in plain early training.
 
-GATE pending.
+GATE pending; recommended first: the baseline's epoch 3 and λ3's epoch 1 as controls (~1.6 GPU-hours).

@@ -1435,7 +1435,7 @@ Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`. `LADDER=4` runs one run, 
 
 ### B12 as run (2026-11-06)
 
-- **Code:** B12.1 as specified (`LADDER=4`, two tests; 288 tests). It was reviewed by the orchestrator before the run, and both batch reviews followed.
+- **Code:** B12.1 as specified (`LADDER=4`, two tests; 288 tests). The orchestrator reviewed it before the run.
 - **Jobs**, one at a time. drama3 was stopped and the watchdog was on. About 7.3 GPU-hours against the 6.5-7 estimated, because an epoch-3 decode was added:
   - `sbs-base-e1` (`job-20261106-132449`): 2,894 s.
   - `cons1-pp-l3` (`job-20261106-132730`): 3 × ~4,300 s, peak 56.0 GiB.
@@ -1453,4 +1453,13 @@ Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`. `LADDER=4` runs one run, 
   - **Epoch 2** opens when spoken to, has no fragments and follows the swap 100/104. Its typed opening starts on frame 7-8 and makes the tape's move in 5/13.
   - **Epoch 3** opens like the baseline (typed tape move 12/13), with stops 0/1/0, but the swap is followed only 94/104 (p ≈ 0.09).
   - **Baseline epoch 1** is silent after the spoken opening (11/13, 10/13) and fragmented (16/9/8).
-- **GATE:** (a) a second λ = 3 seed, (b) λ = 3 without turn 0, (c) λ 1-2, (d) voice D, (e) stop the line.
+  - **Epoch 3's slip:** 7 of its 10 misses are on unswapped rows, and they are fluent affirmations. There is no λ = 0 decode at epoch 3.
+- **Reviews:**
+  - Sonnet: no blockers. Its fixes were the same-epoch seed comparison (the floor falls ×0.54, the gap ×0.34), the λ10 epoch-1 misses being partly truncation, the reason epoch 1 was not decoded, and the hedge on the lead-frame claim.
+  - Opus recomputed every number (all reproduce). Its corrections:
+    - there is no epoch-3 λ = 0 control, so the slip could be an epoch effect;
+    - judge noise is of the same order;
+    - λ10 epoch 1's fragments are stubbier than the baseline's;
+    - λ10 re-enters the silent opening rather than staying in it;
+    - each option costs ~6.5 GPU-hours.
+- **GATE:** (a) the baseline's epoch 3 and λ3's epoch 1 decodes (~1.6 GPU-hours, recommended first), (b) a second λ = 3 seed, (c) λ = 3 without turn 0, (d) λ 1-2, (e) voice D, (f) stop the line.
