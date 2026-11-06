@@ -1315,3 +1315,25 @@ Files: `src/dual/sbs_report.py`, `tests/test_sbs_report.py` (nothing else).
   - a few example turns;
   - a one-paragraph verdict: healthy (the tutor still listens) or not.
 - Then a sonnet review of the batch diff and an opus review before the merge. Merge `--no-ff`. The plan records the run, and a memory note is written. End at a GATE before step two.
+
+### B10 as run (2026-11-06)
+
+- **Code:** B10.1 and B10.2 as specified.
+  - `decode_all` takes pre-packed batches.
+  - The first-word table compares `words_of(answer)[0]`.
+  - Review follow-ups: a swap-row characterisation test, and `quality_table` refuses duplicates. 286 tests.
+- **Jobs (image `sbs2:72868db`, drama3 stopped):**
+  - smoke (6 min);
+  - `sbs-2` (`cons1-pp-l10` epoch 2, 195 true + 52 swap rows, 2,719 s; the true rows ran in B7's exact batch shapes);
+  - `sbs-2-base` (`ladder-personaplex-1` epoch 2, 52 swap rows, 653 s);
+  - ~68 GPU-minutes.
+- **Judging:** nine blind opus judges over 260 pairs, 390 answers and 208 swap items. Re-judging B7's baseline reproduced its counts within 1-2.
+- **Result** (`docs/results/side-by-side-2.md`):
+  - **Mid-lesson the tutor still listens.** Uptake on turns 2-8 is 50/50/49 of 52 (baseline 52/50/50), and typed≠A is 18/52 (baseline 17/52).
+  - **The swap is followed:** 46/52 answers take up the swapped turn, and only 1 takes up the dialogue's own.
+  - **Tracking slipped:** 94/104 against 103/104 (p ≈ 0.01).
+  - **The lesson opening collapsed:**
+    - After the spoken first question the pilot is silent in 13/13 (A) and 10/13 (B).
+    - After the typed first question it starts on frame 8-9 instead of 3, and takes the question up in 8/13.
+  - No mid-lesson first-word divergence at epoch 2.
+  - **Verdict:** not healthy as a checkpoint. GATE: λ 3, the term without turn 0, an epoch-1 side-by-side, or step two anyway.

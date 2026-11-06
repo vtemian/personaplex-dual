@@ -1,0 +1,44 @@
+Judges: nine opus agents (xhigh), 2026-11-06, each reading only its own input file and rubric.
+Pools: 260 pairs (typed vs A, A vs B; baseline-e2 = ladder-personaplex-1 epoch 2 as decoded by B7, and cons1-e2), 3 judges;
+390 single answers (both models, typed/A/B), 4 judges; 208 swap items (turns 2 and 6, typed and A, true and swapped, both models), 2 judges.
+Shuffled (seed 11), X/Y and P/Q order random, model, rendering and condition hidden. Swap items do not show the tape tutor answer (it would reveal the dialogue's own turn).
+
+--- pair prompt (rubric, B7 verbatim) ---
+For each pair decide, judging SUBSTANCE not wording:
+- "same": X and Y make the same pedagogical move on the pupil's turn: the same verdict on what the
+  pupil said (agree / correct / ask back), the same mathematical claim or example direction and
+  the same next step. Different numbers or wording within the same move still count as "same".
+  Small slips are fine.
+- "differs": they make a different move: one accepts what the pupil said and the other corrects
+  it; they reach different conclusions; one engages the pupil's turn and the other ignores it or
+  answers something else; they go to clearly different content.
+Judge mainly the first two sentences (the part that responds to the pupil); later drift counts
+only if it contradicts the opening.
+Also give, for each pair, "x_engages" and "y_engages": "yes" if the answer takes up the specific
+thing the pupil said (their answer, claim, number or question), "no" if it does not.
+Output keys: id, substance, x_engages, y_engages, why (at most 15 words).
+
+--- answer prompt (rubric, B7 verbatim + well_formed) ---
+- "engages": "yes" if its opening takes up the specific thing the pupil said (their answer,
+  claim, number, guess or question: e.g. agrees with it, corrects it, quotes or reuses it); "no"
+  if it carries on the lesson without reference to what the pupil said, or answers something the
+  pupil did not say.
+- "verdict": "agree", "correct", "ask_back", "none", or "na" for an opening question by the pupil.
+- "matches_tape": "yes" if its move on the pupil's turn is the same as the tape_tutor_answer's
+  (same verdict and direction), "no" otherwise.
+Judge mainly the first two sentences.
+- "well_formed": "no" if the answer is garbled, broken mid-word, ungrammatical to the point of
+  nonsense, a bare fragment, or loops repeating itself; "yes" otherwise. A silent answer is "no".
+Output keys: id, engages, verdict, matches_tape, well_formed, why (at most 12 words).
+
+--- swap prompt (rubric, new) ---
+Each item shows the previous tutor turn, two candidate pupil turns P and Q, and the tutor's
+answer. Exactly one of P and Q is what the pupil said right before this answer; the other is a
+decoy. Decide which pupil turn the answer's OPENING takes up (agrees with, corrects, quotes or
+reuses its specific answer, number, claim or question). Judge only by the answer's content, not
+by which pupil turn fits the previous tutor turn better: the pupil may have said something odd.
+- "P" or "Q": the opening clearly takes up that one and not the other.
+- "both": it is consistent with both equally (e.g. both said the same number).
+- "neither": it takes up neither (generic, off-topic, silent, or a number neither said).
+Judge mainly the first two sentences.
+Output keys: id, takes_up, why (at most 12 words).

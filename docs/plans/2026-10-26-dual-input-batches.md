@@ -2125,3 +2125,5 @@ Result (`docs/results/consistency-1.md`): the first change to move the ratio. R_
 ## Batch B10: side by side 2 (2026-11-06)
 
 Vlad, at GATE-1: "do step by step". Step one of option (b): B7's side-by-side on the consistency pilot (`cons1-pp-l10`) epoch 2, plus a judged pupil-turn swap. Does the tutor still respond to what the pupil said, or did the term make it deaf to the pupil turn? No training, no render. The spec is in `docs/plans/2026-11-05-consistency-loss.md`, Batch B10.
+
+Result (`docs/results/side-by-side-2.md`): mid-lesson the tutor still listens. Uptake on turns 2-8 is 50/50/49 of 52, and a swapped pupil turn is followed in 46/52. But after the lesson's spoken first question the pilot is silent in 23/26, so epoch 2 is not healthy as a checkpoint. A GATE is pending.
