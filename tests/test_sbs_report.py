@@ -4,10 +4,13 @@ import pathlib
 import pytest
 
 from dual.sbs_report import (
+    first_word_table,
     judgments_table,
     load,
     main,
+    onset,
     pair_stats,
+    quality_table,
     similarity,
     stats_table,
     turn_blocks,
@@ -157,3 +160,81 @@ def test_main(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
     assert "trained" not in out
     main([str(p)])
     assert "| rendering | bare | trained |" in capsys.readouterr().out
+
+
+def qrow(model, rendering, answer, ids, turn=1, stem="s1"):
+    r = row(model, stem, turn, rendering, answer)
+    r["ids"] = ids
+    return r
+
+
+def _cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip("|").split("|")]
+
+
+def test_onset():
+    assert onset([3, 3, 1, 5]) == 2
+    assert onset([7, 3]) == 0
+    assert onset([3, 3, 3]) is None
+    assert onset([]) is None
+
+
+def test_quality_table():
+    rep = "a b c d a b c d a b c d."
+    rows = [
+        qrow("m", "typed", "Hello there.", [3, 3, 3, 9], 1),
+        qrow("m", "typed", "Why not?", [1, 9], 2),
+        qrow("m", "typed", "", [3, 3], 3),
+        qrow("m", "typed", "and then", [3, 3, 3, 3, 4], 4),
+        qrow("m", "A", rep, [3, 4], 1),
+        qrow("m", "typed-swap", "one two three!", [3, 3, 5], 1),
+        qrow("zzz", "typed", "x.", [3, 3, 3, 3, 3, 8], 1),
+    ]
+    t = quality_table(rows, ["m"])
+    assert "zzz" not in t
+    head = _cells(t.splitlines()[0])
+    assert head == [
+        "model", "rendering", "n", "silent", "onset 0", "onset 1", "onset 2",
+        "onset 3", "onset other", "median words", "repetitive", "unfinished",
+    ]  # fmt: skip
+    lines = [ln for ln in t.splitlines() if ln.startswith("| m ")]
+    assert [_cells(ln)[1] for ln in lines] == ["typed", "A", "typed-swap"]
+    # typed: 4 rows, 1 silent; onsets 0:1 (the <s> row) 3:1 other:1; words 2,2,2
+    assert _cells(lines[0])[2:] == ["4", "1", "1", "0", "0", "1", "1", "2", "0", "1"]
+    # A: one answer with the 4-gram "a b c d" three times, ends with "."
+    assert _cells(lines[1])[2:] == ["1", "0", "0", "1", "0", "0", "0", "12", "1", "0"]
+    assert _cells(lines[2])[2:] == ["1", "0", "0", "0", "1", "0", "0", "3", "0", "0"]
+
+
+def test_first_word_table():
+    rows = [
+        qrow("m", "typed", "Well, yes.", [], 1),
+        qrow("m", "A", "well no", [], 1),
+        qrow("m", "B", "", [], 1),
+        qrow("m", "typed", "so", [], 2),
+        qrow("m", "A", "Then", [], 2),
+        qrow("m", "B", "then", [], 2),
+    ]
+    t = first_word_table(rows, ["m"])
+    got = [_cells(ln) for ln in t.splitlines() if ln.startswith("| m ")]
+    assert got == [
+        ["m", "typed vs A", "2", "1"],
+        ["m", "A vs B", "1", "1"],
+        ["m", "typed vs B", "1", "0"],
+    ]
+
+
+def test_unknown_renderings_ignored():
+    rows = [*ROWS, row("bare", "s1", 1, "typed-swap", "swapped")]
+    assert stats_table(rows, ["bare"]) == stats_table(ROWS, ["bare"])
+    assert turn_blocks(rows, ["bare"]) == turn_blocks(ROWS, ["bare"])
+
+
+def test_main_quality(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
+    p = tmp_path / "r.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in ROWS))
+    main([str(p), "--quality"])
+    out = capsys.readouterr().out
+    assert "repetitive" in out and "typed vs A" in out and "### s1" in out
+    main([str(p)])
+    assert "repetitive" not in capsys.readouterr().out
