@@ -168,6 +168,12 @@ def _repetitive(answer: str) -> bool:
 
 
 def quality_table(rows: Sequence[dict[str, Any]], models: Sequence[str]) -> str:
+    seen: set[tuple[str, str, int, str]] = set()
+    for r in rows:
+        key = (r["model"], r["stem"], int(r["turn"]), r["rendering"])
+        if key in seen:
+            raise ValueError(f"duplicate row {key}")
+        seen.add(key)
     body = []
     for m in models:
         mine = [r for r in rows if r["model"] == m]
