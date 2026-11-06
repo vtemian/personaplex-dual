@@ -1432,3 +1432,25 @@ Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`. `LADDER=4` runs one run, 
 - Blind judging of the baseline epoch 1 and the λ3 epoch(s) in one pool with B11's items.
 - The doc: bar and behaviour side by side for baseline e1, baseline e2, λ10 e1, λ10 e2 and λ3 epoch(s): speaks after spoken opening, opening uptake, typed onset frame, mid-lesson uptake, mid-sentence stops, median length, swap-follow of 104, substance typed-vs-A and A-vs-B. A bar number is never reported without the opening-silence and fragment checks next to it.
 - Sonnet review, opus review (recompute the numbers), merge `--no-ff`, plan records the run, memory notes. End at a GATE.
+
+### B12 as run (2026-11-06)
+
+- **Code:** B12.1 as specified (`LADDER=4`, two tests; 288 tests). It was reviewed by the orchestrator before the run, and both batch reviews followed.
+- **Jobs**, one at a time. drama3 was stopped and the watchdog was on. About 7.3 GPU-hours against the 6.5-7 estimated, because an epoch-3 decode was added:
+  - `sbs-base-e1` (`job-20261106-132449`): 2,894 s.
+  - `cons1-pp-l3` (`job-20261106-132730`): 3 × ~4,300 s, peak 56.0 GiB.
+  - `measure-cons1-pp-l3` (`job-20261106-175400`).
+  - `sbs-l3-e2` (`job-20261106-175416`).
+  - `sbs-l3-e3` (`job-20261106-191130`).
+  - Epoch 3 was added because its turn-0 lead-frame gap returned to the baseline's level (0.70 against 0.74) and it had the best R. Epoch 1 was not decoded: its lead-frame gap was 0.062, the silent-opening sign.
+  - ssh blipped 19:18-19:46; the box did not reboot.
+- **Judging:** 26 blind opus judges, six checkpoints in one pool. On the shared items they agree with B11's labels in 352/390, 570/585 and 298/312.
+- **Result** (`docs/results/consistency-2.md`):
+  - The rule's verdict is **not moved**: R_gap 2.51 (epoch 1), −0.48.
+  - Per epoch, epoch 2 (R 1.95) and epoch 3 (R 1.87) are down against the seeds, every CI excluding 0. Neither passes the bar.
+  - Held text +1.1%, −0.6% and −5.4%.
+  - Turn-0 lead KL 0.062, 0.25 and 0.70.
+  - **Epoch 2** opens when spoken to, has no fragments and follows the swap 100/104. Its typed opening starts on frame 7-8 and makes the tape's move in 5/13.
+  - **Epoch 3** opens like the baseline (typed tape move 12/13), with stops 0/1/0, but the swap is followed only 94/104 (p ≈ 0.09).
+  - **Baseline epoch 1** is silent after the spoken opening (11/13, 10/13) and fragmented (16/9/8).
+- **GATE:** (a) a second λ = 3 seed, (b) λ = 3 without turn 0, (c) λ 1-2, (d) voice D, (e) stop the line.

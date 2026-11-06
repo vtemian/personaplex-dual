@@ -2127,3 +2127,20 @@ Result (`docs/results/consistency-1.md`): the first change to move the ratio. R_
 Vlad, at GATE-1: "do step by step". Step one of option (b): B7's side-by-side on the consistency pilot (`cons1-pp-l10`) epoch 2, plus a judged pupil-turn swap. Does the tutor still respond to what the pupil said, or did the term make it deaf to the pupil turn? No training, no render. The spec is in `docs/plans/2026-11-05-consistency-loss.md`, Batch B10.
 
 Result (`docs/results/side-by-side-2.md`): mid-lesson the tutor still listens. Uptake on turns 2-8 is 50/50/49 of 52, and a swapped pupil turn is followed in 46/52. But after the lesson's spoken first question the pilot is silent in 23/26, so epoch 2 is not healthy as a checkpoint. A GATE is pending.
+
+## Batch B11: side by side 3 (2026-11-06)
+
+Vlad, at B10's GATE: "Check epoch 1 first". This batch is B10's side-by-side on the pilot's epoch 1. Result (`docs/results/side-by-side-3.md`): epoch 1 is not silent at the opening, but it answers in fragments (mid-sentence stops 20/11/17 of 52). So no λ = 10 epoch is healthy.
+
+## Batch B12: λ = 3 pilot (2026-11-06)
+
+Vlad, at B11's GATE: "Weight 3 + baseline epoch 1 decode (Recommended)". The run is `cons1-pp-l3`, identical to the λ = 10 pilot except the weight. All 3 epochs were measured, epochs 2 and 3 decoded side by side, and the baseline's own epoch 1 decoded too. The spec is in `docs/plans/2026-11-05-consistency-loss.md`, Batch B12.
+
+Result (`docs/results/consistency-2.md`):
+- **No λ = 3 epoch is both healthy and better on the bar.**
+  - Epoch 3 restores the baseline's opening and has no fragments, at R 1.87. But it slips on following the pupil's turn (94/104 against 101/104).
+  - Epoch 2 listens like the baseline, but its typed opening starts late.
+- **The bar rule says "not moved"** (R_gap 2.51 at epoch 1).
+- **The baseline's epoch 1 is itself silent at the spoken opening and fragmented,** so B10's and B11's failures are early-training states, not artefacts of the term.
+
+GATE pending.
