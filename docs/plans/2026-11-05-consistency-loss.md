@@ -1374,12 +1374,30 @@ Vlad, at B10's GATE ("The pilot listens mid-lesson but goes silent after the spo
 ### B11 as run (2026-11-06)
 
 - **No code.** The job already takes `--epoch`.
-- **Job (image `sbs2:72868db`, drama3 stopped, watchdog on):** `job-20261106-121325-vlad-sbs-3`, `cons1-pp-l10` epoch 1, 195 true and 52 swap rows in B10's exact batch shapes and donor map, 2,720 s of decoding, peak 38.9 GiB, ~48 GPU-minutes.
-- **Judging:** 13 blind opus judges over 390 pairs, 585 answers and 312 swap items, all three checkpoints in one pool. Agreement with B10's labels on the shared items: 238/260, 382/390, 202/208.
+- **Job (image `sbs2:72868db`, drama3 stopped, watchdog on):** `job-20261106-121325-vlad-sbs-3`, `cons1-pp-l10` epoch 1.
+  - 195 true and 52 swap rows, in B10's exact batch shapes and donor map.
+  - 2,720 s of decoding (~48 GPU-minutes with load, against the ~57 estimated), peak 38.9 GiB.
+- **Judging:** 13 blind opus judges over 390 pairs, 585 answers and 312 swap items, all three checkpoints in one pool. On the shared items they agree with B10's labels in 238/260, 382/390 and 202/208.
 - **Result** (`docs/results/side-by-side-3.md`):
-  - **The opening is not silent at epoch 1** (0/13 after A and B; epoch 2 13/13 and 10/13), and the spoken openings take the question up 11/13 and 10/13.
-  - **But it is already damaged:** the typed opening matches the tape's move in 1/13 and is well formed in 5/13.
-  - **Mid-lesson answers stop early:** mid-sentence with ≥ 20% of the window left in 20/11/17 of 52 (typed/A/B; baseline 1/2/0, epoch 2 0/1/1); median 41/57/47 words. Uptake holds (51/49/50).
-  - **Swap:** the played turn is taken up in 95/104 (baseline 103/104, epoch 2 94/104).
-  - **Side reads:** the term is logged per step only, never per turn; it covers content frames only, so the lead frames are outside it. Turn 0 had the largest bare-model gap (0.093 against 0.03-0.05). The turn-0 lead-frame KL(typed‖A) is 0.54 at epoch 1 (baseline 0.74, epoch 2 0.095). P(`<pad>`) is not stored by the measure, so B10's reading stays untested.
-  - **Verdict:** the λ = 10 term damages answers from epoch 1. Training moved the damage from mid-answer truncation (epoch 1) to a silent spoken opening (epoch 2). The lever is the weight, not training length. GATE: (ii) λ 3 recommended; (i) without turn 0; (iii) early stop not supported; (iv) voice D.
+  - **The opening is not silent at epoch 1.** It is silent in 0/13 after A and 0/13 after B, against 13/13 and 10/13 at epoch 2, so the silence grows with training. The turn-0 lead-frame KL(typed‖A) tightens over epochs 1-3: 0.54, 0.095, 0.061 (baseline 0.74).
+  - **But epoch 1 is not healthy.**
+    - The typed opening matches the tape's move in 1/13 and is well formed in 5/13.
+    - Mid-lesson, answers break off as fragments. They stop mid-sentence with ≥ 20% of the window left in 20/11/17 of 52 (typed/A/B), against 1/2/0 for the baseline and 0/1/1 at epoch 2. Most stop within the first tenth of the window, and median words on turns 2-8 are 41/57/38.
+    - Uptake holds (51/49/50). The swap count is 95/104, but all 9 misses are fragments or a loop.
+  - **Side reads:**
+    - The term is logged per step only, never per turn.
+    - It covers content frames only, so the lead frames are outside it.
+    - Turn 0 had the largest bare-model gap, 2-3× the other turns.
+    - P(`<pad>`) is not stored, so B10's reading stays untested.
+  - **Verdict:**
+    - At λ = 10 no decoded epoch is healthy, so an early stop is out.
+    - The epoch-1 fragments fit either the term or ordinary under-training. The baseline's epoch 1 was never decoded.
+    - The loss weight is the untested candidate.
+  - **GATE:** (ii) λ 3 is recommended, with a baseline epoch-1 decode (~45 GPU-minutes). The other options are (i) λ 10 without turn 0 (untested, since the term never sees the lead frames), (iii) early stop (not supported) and (iv) voice D.
+- **Reviews:**
+  - Sonnet: no blockers. Its fixes were the turns 2-8 medians, the lead-frame attribution and the table labels.
+  - Opus recomputed every number. Its corrections:
+    - hedge the lever claim (λ was never varied);
+    - epoch 1's swap misses are truncation;
+    - argue against (i) from epoch 2's swap misses, not epoch 1's truncation;
+    - the side-by-side costs ~1.6 GPU-hours, so (ii) is ~6.5.
