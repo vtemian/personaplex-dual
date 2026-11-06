@@ -1401,3 +1401,34 @@ Vlad, at B10's GATE ("The pilot listens mid-lesson but goes silent after the spo
     - epoch 1's swap misses are truncation;
     - argue against (i) from epoch 2's swap misses, not epoch 1's truncation;
     - the side-by-side costs ~1.6 GPU-hours, so (ii) is ~6.5.
+
+## Batch B12: λ = 3 pilot, with the baseline's epoch-1 decode (2026-11-06)
+
+Vlad, at B11's GATE ("Weight 10 has no healthy epoch: fragments at epoch 1, silent opening at epoch 2. Which lever next?"): **"Weight 3 + baseline epoch 1 decode (Recommended)"**, "Retrain with a gentler consistency weight, measure, and side-by-side. Also decode the baseline's epoch 1 (45 min) so the fragments can be read as under-training or as the loss. About 6.5-7 GPU-hours." This batch runs exactly that and ends at a GATE.
+
+**The questions.**
+1. Are B11's epoch-1 fragments (mid-sentence stops 20/11/17 of 52, typed/A/B) ordinary under-training or the term? The baseline's own epoch 1 (`ladder-personaplex-1`, λ = 0) answers it: the LR is constant (AdamW, no schedule), so its epoch 1 is the same point in training as a 3-epoch run's epoch 1.
+2. Is there a λ = 3 epoch that is behaviourally healthy (opening spoken and taken up like the baseline, no fragments, swap followed like the baseline) **and** better on the bar than ~3.0?
+
+**Comparable by construction.**
+- Train: identical to `cons1-pp-l10` (from scratch, seed 0, 3 epochs, 117 stems, rank 16, LR 2e-5, teacher = live student on the all-tape row, bar direction, compiled), except `--consistency 3`. Same image `cons1:9690aa5`, so the train and measure code are the pilot's byte for byte.
+- Side-by-side: B10/B11's image `sbs2:72868db`, job, holdout, renderings, greedy decode, budget 48,000, max batch 64, `--swap-turns 2,6` (B10's donor map); true rows land in B7's batch shapes.
+- Judging: B10's rubrics verbatim, blind opus judges, new answers pooled with B11's baseline / λ10 items so all share judges.
+- No training code changes. Per-turn logging of the term is not supported (B11 side read) and is skipped; the measure's per-turn KL covers turn 0.
+
+### Task B12.1: `LADDER=4` (model: sonnet; TDD)
+
+Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`. `LADDER=4` runs one run, `cons1-pp-l3,personaplex,1,3,--consistency,3` (train, then its measure, then `make bar`), like `LADDER=3`. The unknown-LADDER message lists 1-4.
+
+### Task B12.2: run it (the orchestrator; one job at a time, `--mem-cap-gib 64`, drama3 stopped, watchdog on)
+
+1. `sbs-base-e1`: `--run ladder-personaplex-1 --epoch 1 --no-bare --swap-turns 2,6` (195 true + 52 swap rows, ~48 GPU-min). Submitted first; the train queues right behind it.
+2. `LADDER=4 IMAGE=spark.local:5000/vlad/cons1:9690aa5 scripts/ladder.sh`: train `cons1-pp-l3` (~3.6 h), `measure-cons1-pp-l3` (~75 min), `make bar`. Resume a hung train with `make train NAME=cons1-pp-l3 EPOCHS=3 ARGS='--consistency 3 --resume'`, then the measure by hand.
+3. Side-by-side `sbs-l3-e2` (`--run cons1-pp-l3 --epoch 2 --no-bare --swap-turns 2,6`); add epoch 1 or 3 if the bar or the turn-0 lead-frame gap points there.
+
+### Task B12.3: read it and `docs/results/consistency-2.md`
+
+- `make noise VARIANTS=personaplex-cons1-pp-l3` (R0 3.00; moved iff |R − R0| ≥ 0.5 and both paired CIs exclude 0), `make position`, held text loss and mean `cons` per epoch, the turn-0 lead-frame KL(typed‖A) per epoch (baseline 0.74; λ10 0.54 / 0.095 / 0.061).
+- Blind judging of the baseline epoch 1 and the λ3 epoch(s) in one pool with B11's items.
+- The doc: bar and behaviour side by side for baseline e1, baseline e2, λ10 e1, λ10 e2 and λ3 epoch(s): speaks after spoken opening, opening uptake, typed onset frame, mid-lesson uptake, mid-sentence stops, median length, swap-follow of 104, substance typed-vs-A and A-vs-B. A bar number is never reported without the opening-silence and fragment checks next to it.
+- Sonnet review, opus review (recompute the numbers), merge `--no-ff`, plan records the run, memory notes. End at a GATE.
