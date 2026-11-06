@@ -1370,3 +1370,16 @@ Vlad, at B10's GATE ("The pilot listens mid-lesson but goes silent after the spo
 - B10's protocol verbatim (pair, answer and swap rubrics from `side-by-side-2/judge-prompts.txt`). Epoch-1 answers are pooled with epoch-2's and the baseline's, so the three share judges. B10's labels are kept for comparison.
 - **The doc:** epoch 1 next to epoch 2 and the baseline, for every B10 table: substance, uptake (all, turns 2-8, turn 0), swap, onset and quality, first word. Plus the side reads and a one-paragraph answer: is the opening broken at epoch 1, and what that says about the lever.
 - Sonnet review, opus review, merge `--no-ff`, the plan records the run, a memory note. End at a GATE: (i) λ 10 without the opening answer in the term, (ii) λ 3, (iii) fewer epochs / early stop, (iv) TTS-voiced teacher rows in voice D.
+
+### B11 as run (2026-11-06)
+
+- **No code.** The job already takes `--epoch`.
+- **Job (image `sbs2:72868db`, drama3 stopped, watchdog on):** `job-20261106-121325-vlad-sbs-3`, `cons1-pp-l10` epoch 1, 195 true and 52 swap rows in B10's exact batch shapes and donor map, 2,720 s of decoding, peak 38.9 GiB, ~48 GPU-minutes.
+- **Judging:** 13 blind opus judges over 390 pairs, 585 answers and 312 swap items, all three checkpoints in one pool. Agreement with B10's labels on the shared items: 238/260, 382/390, 202/208.
+- **Result** (`docs/results/side-by-side-3.md`):
+  - **The opening is not silent at epoch 1** (0/13 after A and B; epoch 2 13/13 and 10/13), and the spoken openings take the question up 11/13 and 10/13.
+  - **But it is already damaged:** the typed opening matches the tape's move in 1/13 and is well formed in 5/13.
+  - **Mid-lesson answers stop early:** mid-sentence with ≥ 20% of the window left in 20/11/17 of 52 (typed/A/B; baseline 1/2/0, epoch 2 0/1/1); median 41/57/47 words. Uptake holds (51/49/50).
+  - **Swap:** the played turn is taken up in 95/104 (baseline 103/104, epoch 2 94/104).
+  - **Side reads:** the term is logged per step only, never per turn; it covers content frames only, so the lead frames are outside it. Turn 0 had the largest bare-model gap (0.093 against 0.03-0.05). The turn-0 lead-frame KL(typed‖A) is 0.54 at epoch 1 (baseline 0.74, epoch 2 0.095). P(`<pad>`) is not stored by the measure, so B10's reading stays untested.
+  - **Verdict:** the λ = 10 term damages answers from epoch 1. Training moved the damage from mid-answer truncation (epoch 1) to a silent spoken opening (epoch 2). The lever is the weight, not training length. GATE: (ii) λ 3 recommended; (i) without turn 0; (iii) early stop not supported; (iv) voice D.
