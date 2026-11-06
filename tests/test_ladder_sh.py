@@ -512,3 +512,22 @@ def test_ladder_3_rejects_a_ladder_2_run_name(box):
     assert r.returncode == 2
     assert "cons1-pp-l10" in r.stdout + r.stderr
     assert submits(log) == []
+
+
+def test_ladder_4_submits_the_lambda_3_pilot_then_its_measure(box):
+    r, log = box(LADDER="4")
+    assert r.returncode == 0, r.stderr
+    assert submits(log) == [
+        "make IMAGE=img:tag -s train NAME=cons1-pp-l3 BASE=personaplex SLICE=1"
+        " RENDER=render-1 EPOCHS=3 ARGS=--consistency 3",
+        "make IMAGE=img:tag -s measure NAME=cons1-pp-l3 BASE=personaplex"
+        " RUN=cons1-pp-l3 RENDER=render-1",
+    ]
+    assert " bar BOX=vlad@box" in log[-1]
+
+
+def test_ladder_4_rejects_a_ladder_3_run_name(box):
+    r, log = box(LADDER="4", FROM="cons1-pp-l10")
+    assert r.returncode == 2
+    assert "cons1-pp-l3" in r.stdout + r.stderr
+    assert submits(log) == []
