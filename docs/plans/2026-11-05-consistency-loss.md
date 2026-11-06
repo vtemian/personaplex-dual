@@ -1212,3 +1212,35 @@ start another GPU run before his answer. Options:
   per-step timings will show it, and D11's +20–25% is an estimate.
 - A single pilot seed. The noise threshold T = 0.5 comes from the baseline seeds, and a "moved" verdict
   is confirmed by a second seed only at GATE-1 (a).
+
+---
+
+### B9 as run (2026-11-05 to 11-06)
+
+- **Code:**
+  - C1 (`dual.consistency`, `kl.consistency_loss`), C2 (train flags, `build_teachers`, the term in `losses`, the `main()` wiring) and C3 (`LADDER=3`, `make noise VARIANTS=`) as specified. Merged to `main` as 9690aa5, 269 tests.
+  - Deviations:
+    - The plan's smoke stop wrote a checkpoint when `--max-steps` exceeded the steps run. A smoke now always skips the eval and checkpoint.
+    - `main()` validates every typed row's pairs at startup.
+    - `main()` is exercised on CPU with fakes (4 tests), which retired the "written but not run" risk.
+  - Real render-1 slice 1: 227 typed rows, 585 answer pairs, 94,464 content frames.
+- **Reviews:**
+  - Sonnet reviewed C1+C3 (nothing serious) and C2 (the four plan questions all yes).
+  - Opus reviewed before the merge: nothing blocking.
+  - Fixed after review:
+    - `build_teachers` held the previous stem's logits through the next teacher forward.
+    - The smoke prints reserved memory and dynamo counters.
+    - The zero-frame KL test asserts the gradient.
+- **Jobs:**
+  - Image `cons1:9690aa5`.
+  - GATE-0 passed:
+    - `cons-smoke-1`: peak 39.2 GiB, teacher 32%.
+    - `cons-smoke-wide`: peak 50.1 GiB, teacher 33%, 287 steps/epoch = baseline, 12 dynamo graphs.
+  - Pilot `cons1-pp-l10`: 3 × ~4,300 s (+33%), peak 56.0 GiB. Its measure took 4,506 s. drama3 was stopped throughout.
+- **Result** (`docs/results/consistency-1.md`):
+  - **Down.** R_gap 1.90 (epoch 1) against R0 3.00; −1.09; CIs [−1.50, −0.65] and [−1.83, −0.44]. Median gap 0.0061 against 0.018. R 1.67 (epoch 2).
+  - typed‖A reached tape‖A at epoch 2 (0.0061 vs 0.0069): the D2 tape ceiling. typed‖tape is still 0.0067.
+  - Held text: +7.7% at epoch 1, +1.0% at epoch 2, −10.6% at epoch 3.
+  - The floor also fell (A‖B 0.0032 vs 0.0058).
+  - The bar still fails: ratio 1.7-1.9, p90 ratio 1.3. Every KL shrank (floor ×0.36 per turn); whether answers still depend on the pupil is unchecked (B7 side-by-side). Held text +7.7% at the R_gap epoch triggers option (e) as written.
+- **GATE-1:** pending Vlad's choice; options (a)-(e) are in the results doc.
