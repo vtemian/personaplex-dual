@@ -2121,3 +2121,7 @@ Vlad, at the bar-by-position gate: "Add a consistency loss (Recommended). Keep t
 Plan: `docs/plans/2026-11-05-consistency-loss.md`. The teacher is the live student with stop-gradient on the stem's all-tape spoken row. The term is λ = 10 · KL(typed answer ‖ spoken answer) on the answer content frames after each typed turn. The pilot is the ladder recipe otherwise unchanged.
 
 Result (`docs/results/consistency-1.md`): the first change to move the ratio. R_gap went from 3.00 to 1.90 ("down", both CIs exclude 0), and R is 1.67 at epoch 2. The gap, typed‖A, reached tape‖A, the tape ceiling. The bar still does not pass. Every KL shrank, so a side-by-side check comes first. GATE-1 is pending.
+
+## Batch B10: side by side 2 (2026-11-06)
+
+Vlad, at GATE-1: "do step by step". Step one of option (b): B7's side-by-side on the consistency pilot (`cons1-pp-l10`) epoch 2, plus a judged pupil-turn swap. Does the tutor still respond to what the pupil said, or did the term make it deaf to the pupil turn? No training, no render. The spec is in `docs/plans/2026-11-05-consistency-loss.md`, Batch B10.

@@ -1244,3 +1244,74 @@ start another GPU run before his answer. Options:
   - The floor also fell (A‖B 0.0032 vs 0.0058).
   - The bar still fails: ratio 1.7-1.9, p90 ratio 1.3. Every KL shrank (floor ×0.36 per turn); whether answers still depend on the pupil is unchecked (B7 side-by-side). Held text +7.7% at the R_gap epoch triggers option (e) as written.
 - **GATE-1:** pending Vlad's choice; options (a)-(e) are in the results doc.
+
+---
+
+## Batch B10: side by side 2, the pilot's epoch 2 (2026-11-06)
+
+Vlad, at GATE-1, to "do step one of option (b) regardless": **"do step by step"**. So this batch is step one only. It runs no training and renders nothing. It ends at a GATE before step two (TTS-voiced training rows).
+
+**The question.** After the consistency term, does the tutor still respond to what the pupil said, in each rendering? B9 found every KL shrank (floor ×0.36 per turn). That fits two readings:
+- "less sensitive to how the turn arrived" (healthy);
+- "less sensitive to the pupil turn itself" (bad).
+
+Every bar pair compares renderings of the same content, so the bar cannot tell them apart. B10 decodes and reads the answers.
+
+**Comparable to B7 by construction.** The run uses B7's job, holdout (65 turns), renderings (typed, A, B), greedy LMGen with `dep_q = 8`, budget 48,000 and max batch 64. The pilot's true-turn items are packed by the same `pack` call as B7's, so they land in identical batch shapes. B7 found greedy decoding is shape-unstable (6/30 differ in substance). B7's baseline answers (`ladder-personaplex-1` epoch 2) are reused and not re-decoded. B7's batch-shape control is not repeated, and its 6/30 rate stands as the numerics noise. Repeating it costs 14 GPU-minutes and answers no new question.
+
+**The direct test of the bad reading: a judged swap, not a KL.** For pupil turns 2 and 6 of every holdout dialogue (26 turns), the pupil turn's content is swapped for a donor dialogue's turn at the same index. The swap covers typed and A, and everything else is the tape. Both checkpoints are decoded on the swapped rows. A blind judge then sees the previous tutor turn, the two candidate pupil turns (true and donor, in random order) and the answer, and says which one the opening takes up.
+- **Healthy:** the answer follows the turn that was actually played, for the pilot as often as for the baseline.
+- **The bad reading predicts:** the pilot's answers after a swapped turn still follow the dialogue's own pupil turn, or neither.
+- **Why not the KL alternative:** KL(answer after the true turn ‖ after the swapped turn), teacher-forced, for both checkpoints, needs a full forward per row. That is about 4.6 s each, so ~16 GPU-minutes more, on top of decoding. It scores the tape's words, which belong to the true turn, so it measures surprise at the tape answer rather than whether the tutor follows the pupil. The swap decode reuses the B7 job unchanged, costs ~10 GPU-minutes per model, and answers the behavioural question directly.
+
+**Donors.** Holdout order is `holdout.jsonl`'s. For each (dialogue i, turn t), the donor is the first dialogue j after i, cyclically, whose typed pupil turn t has a different **head**. The head is the normalised words before the first comma of the decoded typed text. This avoids swapping "minus three" for "minus three".
+
+### Task B10.1: swap rows in the side-by-side job (model: sonnet; TDD)
+
+Files: `src/dual/sidebyside.py`, `src/dual/jobs/sidebyside.py`, `tests/test_sidebyside.py`, `Makefile` (nothing else).
+- Pure, in `dual.sidebyside`:
+  - `SWAP_RENDERINGS = ("typed", "A")`.
+  - `answer_head(text) -> str`: `words_of` of the text before the first comma, joined by spaces.
+  - `pick_donors(order: Sequence[str], heads: Mapping[tuple[str, int], str], turns) -> dict[(stem, turn), donor_stem]`. Each (stem, turn) present in `heads` gets the first stem after it, cyclically, that has that turn and a different head. It raises if there is none.
+  - `swap_record(record, turn, donor) -> dict`: a copy of `record` whose `renderings[str(turn)]` is the donor's. The input is not mutated. It raises if `turn` is not a pupil turn of both.
+  - `schedule(true_items, swap_items, budget, max_batch) -> list[list[Item]]` = `pack(true_items) + pack(swap_items)`. A test pins that the true batches equal `pack(true_items)` and that no batch mixes the two.
+- Job:
+  - `--swap-turns 2,6` (default none) and `--swap-only` (decode only the swap items; needs `--swap-turns`).
+  - The swap items' rendering is `typed-swap` / `A-swap`, built with `holdout_row(swap_record(...), t, "typed" | "A")`. The answer window's text must equal the true row's. Their answers.jsonl rows add `donor`, and `true_pupil` (the dialogue's own typed text); `pupil` is the donor's typed text. `meta.json` records the swap turns and the donor map.
+  - `build_items` and the true-item path stay byte-for-byte as B7's.
+- `make check` green. Commit on the given branch only.
+
+### Task B10.2: answer quality in `sbs_report` (model: sonnet; TDD)
+
+Files: `src/dual/sbs_report.py`, `tests/test_sbs_report.py` (nothing else).
+- `onset(ids) -> int | None`: the first answer-window frame whose text id is not `PAD` (`<s>` counts, as in B7); None if silent.
+- `quality_table(rows, models)`, one line per (model, rendering) with:
+  - n, silent;
+  - onset frames 0/1/2/3/other;
+  - median words;
+  - **repetitive**: the answer contains a word 4-gram 3 or more times;
+  - **unfinished**: the last word is not followed by `.`, `?` or `!`.
+- `first_word_table(rows, models)`: per model and pair, (typed, A), (A, B) and (typed, B), the number of turns whose first content word is the same.
+- The CLI gains `--quality`, which prints both. Unknown renderings (`typed-swap`, `A-swap`) are ignored by the B7 pair tables, not refused.
+
+### Task B10.3: run it (the orchestrator)
+
+- One image from the batch branch head.
+- drama3 stays stopped. The watchdog runs while a job runs.
+- `--mem-cap-gib 64`, one job at a time.
+- Jobs:
+  1. `sbs-2`: `--run cons1-pp-l10 --epoch 2 --no-bare --swap-turns 2,6`. That is 195 true rows and 52 swap rows, ~45 min.
+  2. `sbs-2-base`: `--run ladder-personaplex-1 --epoch 2 --no-bare --swap-turns 2,6 --swap-only`. That is 52 rows, ~10 min.
+
+### Task B10.4: blind judging (opus judges, xhigh) and `docs/results/side-by-side-2.md`
+
+- **B7's protocol, verbatim:** pair and single-answer rubrics from `side-by-side-1/judge-prompts.txt`. One key is added to the answer rubric: `well_formed` (no garbled or broken text). Both models' true-row answers go into one shuffled pool, so baseline and pilot get the same judges. B7's own baseline labels are kept for comparison.
+- **The swap judge:** for every true and swapped answer at turns 2 and 6, typed and A, both models (208 items), shuffled and blind to model and condition. Output: `takes_up` ∈ {P, Q, both, neither}.
+- **The doc:**
+  - counts next to B7's;
+  - onset and quality tables;
+  - first-word agreement;
+  - the swap table;
+  - a few example turns;
+  - a one-paragraph verdict: healthy (the tutor still listens) or not.
+- Then a sonnet review of the batch diff and an opus review before the merge. Merge `--no-ff`. The plan records the run, and a memory note is written. End at a GATE before step two.
