@@ -4,7 +4,8 @@
 # sweep, five personaplex SLICE=1 EPOCHS=3 runs, each with its own ARGS (ladder2-pp-s1
 # --seed 1, -lr5e-6 --lr 5e-6, -lr1e-4 --lr 1e-4, -r64 --rank 64 --scaling 0.5, -r4
 # --rank 4 --scaling 8.0). LADDER=3: the B9 consistency pilot, one personaplex SLICE=1
-# EPOCHS=3 run, cons1-pp-l10 (--consistency 10). Each train is followed by its measure (no ARGS: measure reads the
+# EPOCHS=3 run, cons1-pp-l10 (--consistency 10). LADDER=4: the B12 lambda 3 pilot, the same run with
+# --consistency 3, named cons1-pp-l3. Each train is followed by its measure (no ARGS: measure reads the
 # setup from the checkpoint). An unknown LADDER, or a FROM outside the selected list, exits 2.
 # Runs are submitted one at a time, so a box hang loses at most one; FROM=<run name> skips
 # the runs before it in the selected ladder (a hung train is resumed by hand with ARGS=--resume, not by this).
@@ -126,7 +127,8 @@ ladder2-pp-lr1e-4,personaplex,1,3,--lr,1e-4
 ladder2-pp-r64,personaplex,1,3,--rank,64,--scaling,0.5
 ladder2-pp-r4,personaplex,1,3,--rank,4,--scaling,8.0" ;;
   3) RUNS="cons1-pp-l10,personaplex,1,3,--consistency,10" ;;
-  *) say "LADDER=$LADDER is not a ladder (1, 2 or 3)"; exit 2 ;;
+  4) RUNS="cons1-pp-l3,personaplex,1,3,--consistency,3" ;;
+  *) say "LADDER=$LADDER is not a ladder (1, 2, 3 or 4)"; exit 2 ;;
 esac
 
 if [ -n "$FROM" ]; then

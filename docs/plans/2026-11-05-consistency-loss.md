@@ -1401,3 +1401,65 @@ Vlad, at B10's GATE ("The pilot listens mid-lesson but goes silent after the spo
     - epoch 1's swap misses are truncation;
     - argue against (i) from epoch 2's swap misses, not epoch 1's truncation;
     - the side-by-side costs ~1.6 GPU-hours, so (ii) is ~6.5.
+
+## Batch B12: λ = 3 pilot, with the baseline's epoch-1 decode (2026-11-06)
+
+Vlad, at B11's GATE ("Weight 10 has no healthy epoch: fragments at epoch 1, silent opening at epoch 2. Which lever next?"): **"Weight 3 + baseline epoch 1 decode (Recommended)"**, "Retrain with a gentler consistency weight, measure, and side-by-side. Also decode the baseline's epoch 1 (45 min) so the fragments can be read as under-training or as the loss. About 6.5-7 GPU-hours." This batch runs exactly that and ends at a GATE.
+
+**The questions.**
+1. Are B11's epoch-1 fragments (mid-sentence stops 20/11/17 of 52, typed/A/B) ordinary under-training or the term? The baseline's own epoch 1 (`ladder-personaplex-1`, λ = 0) answers it: the LR is constant (AdamW, no schedule), so its epoch 1 is the same point in training as a 3-epoch run's epoch 1.
+2. Is there a λ = 3 epoch that is behaviourally healthy (opening spoken and taken up like the baseline, no fragments, swap followed like the baseline) **and** better on the bar than ~3.0?
+
+**Comparable by construction.**
+- Train: identical to `cons1-pp-l10` (from scratch, seed 0, 3 epochs, 117 stems, rank 16, LR 2e-5, teacher = live student on the all-tape row, bar direction, compiled), except `--consistency 3`. Same image `cons1:9690aa5`, so the train and measure code are the pilot's byte for byte.
+- Side-by-side: B10/B11's image `sbs2:72868db`, job, holdout, renderings, greedy decode, budget 48,000, max batch 64, `--swap-turns 2,6` (B10's donor map); true rows land in B7's batch shapes.
+- Judging: B10's rubrics verbatim, blind opus judges, new answers pooled with B11's baseline / λ10 items so all share judges.
+- No training code changes. Per-turn logging of the term is not supported (B11 side read) and is skipped; the measure's per-turn KL covers turn 0.
+
+### Task B12.1: `LADDER=4` (model: sonnet; TDD)
+
+Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`. `LADDER=4` runs one run, `cons1-pp-l3,personaplex,1,3,--consistency,3` (train, then its measure, then `make bar`), like `LADDER=3`. The unknown-LADDER message lists 1-4.
+
+### Task B12.2: run it (the orchestrator; one job at a time, `--mem-cap-gib 64`, drama3 stopped, watchdog on)
+
+1. `sbs-base-e1`: `--run ladder-personaplex-1 --epoch 1 --no-bare --swap-turns 2,6` (195 true + 52 swap rows, ~48 GPU-min). Submitted first; the train queues right behind it.
+2. `LADDER=4 IMAGE=spark.local:5000/vlad/cons1:9690aa5 scripts/ladder.sh`: train `cons1-pp-l3` (~3.6 h), `measure-cons1-pp-l3` (~75 min), `make bar`. Resume a hung train with `make train NAME=cons1-pp-l3 EPOCHS=3 ARGS='--consistency 3 --resume'`, then the measure by hand.
+3. Side-by-side `sbs-l3-e2` (`--run cons1-pp-l3 --epoch 2 --no-bare --swap-turns 2,6`); add epoch 1 or 3 if the bar or the turn-0 lead-frame gap points there.
+
+### Task B12.3: read it and `docs/results/consistency-2.md`
+
+- `make noise VARIANTS=personaplex-cons1-pp-l3` (R0 3.00; moved iff |R − R0| ≥ 0.5 and both paired CIs exclude 0), `make position`, held text loss and mean `cons` per epoch, the turn-0 lead-frame KL(typed‖A) per epoch (baseline 0.74; λ10 0.54 / 0.095 / 0.061).
+- Blind judging of the baseline epoch 1 and the λ3 epoch(s) in one pool with B11's items.
+- The doc: bar and behaviour side by side for baseline e1, baseline e2, λ10 e1, λ10 e2 and λ3 epoch(s): speaks after spoken opening, opening uptake, typed onset frame, mid-lesson uptake, mid-sentence stops, median length, swap-follow of 104, substance typed-vs-A and A-vs-B. A bar number is never reported without the opening-silence and fragment checks next to it.
+- Sonnet review, opus review (recompute the numbers), merge `--no-ff`, plan records the run, memory notes. End at a GATE.
+
+### B12 as run (2026-11-06)
+
+- **Code:** B12.1 as specified (`LADDER=4`, two tests; 288 tests). The orchestrator reviewed it before the run.
+- **Jobs**, one at a time. drama3 was stopped and the watchdog was on. About 7.3 GPU-hours against the 6.5-7 estimated, because an epoch-3 decode was added:
+  - `sbs-base-e1` (`job-20261106-132449`): 2,894 s.
+  - `cons1-pp-l3` (`job-20261106-132730`): 3 × ~4,300 s, peak 56.0 GiB.
+  - `measure-cons1-pp-l3` (`job-20261106-175400`).
+  - `sbs-l3-e2` (`job-20261106-175416`).
+  - `sbs-l3-e3` (`job-20261106-191130`).
+  - Epoch 3 was added because its turn-0 lead-frame gap returned to the baseline's level (0.70 against 0.74) and it had the best R. Epoch 1 was not decoded: its lead-frame gap was 0.062, the silent-opening sign.
+  - ssh blipped 19:18-19:46; the box did not reboot.
+- **Judging:** 26 blind opus judges, six checkpoints in one pool. On the shared items they agree with B11's labels in 352/390, 570/585 and 298/312.
+- **Result** (`docs/results/consistency-2.md`):
+  - The rule's verdict is **not moved**: R_gap 2.51 (epoch 1), −0.48.
+  - Per epoch, epoch 2 (R 1.95) and epoch 3 (R 1.87) are down against the seeds, every CI excluding 0. Neither passes the bar.
+  - Held text +1.1%, −0.6% and −5.4%.
+  - Turn-0 lead KL 0.062, 0.25 and 0.70.
+  - **Epoch 2** opens when spoken to, has no fragments and follows the swap 100/104. Its typed opening starts on frame 7-8 and makes the tape's move in 5/13.
+  - **Epoch 3** opens like the baseline (typed tape move 12/13), with stops 0/1/0, but the swap is followed only 94/104 (p ≈ 0.09).
+  - **Baseline epoch 1** is silent after the spoken opening (11/13, 10/13) and fragmented (16/9/8).
+  - **Epoch 3's slip:** 7 of its 10 misses are on unswapped rows, and they are fluent affirmations. There is no λ = 0 decode at epoch 3.
+- **Reviews:**
+  - Sonnet: no blockers. Its fixes were the same-epoch seed comparison (the floor falls ×0.54, the gap ×0.34), the λ10 epoch-1 misses being partly truncation, the reason epoch 1 was not decoded, and the hedge on the lead-frame claim.
+  - Opus recomputed every number (all reproduce). Its corrections:
+    - there is no epoch-3 λ = 0 control, so the slip could be an epoch effect;
+    - judge noise is of the same order;
+    - λ10 epoch 1's fragments are stubbier than the baseline's;
+    - λ10 re-enters the silent opening rather than staying in it;
+    - each option costs ~6.5 GPU-hours.
+- **GATE:** (a) the baseline's epoch 3 and λ3's epoch 1 decodes (~1.6 GPU-hours, recommended first), (b) a second λ = 3 seed, (c) λ = 3 without turn 0, (d) λ 1-2, (e) voice D, (f) stop the line.
