@@ -22,7 +22,7 @@ import argparse
 import json
 import pathlib
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import torch
@@ -31,12 +31,16 @@ from dual.constants import CODEBOOKS
 from dual.model import MEM_CAP_GIB
 from dual.sidebyside import (
     RENDERINGS,
+    SWAP_RENDERINGS,
     Item,
+    answer_head,
     answer_words,
     batch_cap,
     item_of,
-    pack,
+    pick_donors,
+    schedule,
     step_input,
+    swap_record,
 )
 
 PROBE_DEP_Q = 8
@@ -58,12 +62,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--budget", type=int, default=BUDGET)
     p.add_argument("--max-batch", type=int, default=MAX_BATCH)
     p.add_argument("--mem-cap-gib", type=float, default=MEM_CAP_GIB)
+    p.add_argument(
+        "--swap-turns",
+        type=lambda v: [int(x) for x in v.split(",") if x],
+        default=[],
+        help="pupil turns (comma-separated) to also decode with a donor's turn",
+    )
+    p.add_argument(
+        "--swap-only", action="store_true", help="decode only the swap items"
+    )
     p.add_argument("--compile", action="store_true", help="default eager")
     args = p.parse_args()
     if (args.run is None) != (args.epoch is None):
         p.error("--run and --epoch go together")
     if args.no_bare and args.run is None:
         p.error("--no-bare needs --run")
+    if args.swap_only and not args.swap_turns:
+        p.error("--swap-only needs --swap-turns")
     if args.compile and args.run is not None:
         # compiled, bare takes moshi's fused gating kernel and an adapted model the
         # generic path (LoRALinear is no nn.Linear): the two would differ by kernel
@@ -99,6 +114,61 @@ def build_items(
             "reference": reference,
         }
     return items, rows, texts
+
+
+def build_swap_items(
+    records: Sequence[dict[str, Any]],
+    turns: Sequence[int],
+    decode: Callable[[list[int]], str],
+    pairs: Sequence[tuple[str, int]],
+    texts: dict[str, Any],
+) -> tuple[
+    list[Item],
+    dict[tuple[str, int, str], dict[str, Any]],
+    dict[str, Any],
+    dict[str, str],
+]:
+    """Swap items for the (stem, turn) `pairs` with turn in `turns`, their rows, their
+    texts (keyed "stem#turn#rendering") and the donor map ("stem#turn" -> stem)."""
+    from dual.render import holdout_row
+
+    by_id = {r["id"]: r for r in records}
+    heads = {
+        (r["id"], t): answer_head(
+            answer_words(r["renderings"][str(t)]["typed"]["text"], decode)
+        )
+        for r in records
+        for t in turns
+        if t in r["pupil_turns"]
+    }
+    donors = pick_donors([r["id"] for r in records], heads, turns)
+    items: list[Item] = []
+    rows: dict[tuple[str, int, str], dict[str, Any]] = {}
+    swap_texts: dict[str, Any] = {}
+    for stem, t in pairs:
+        if t not in turns:
+            continue
+        record, donor = by_id[stem], by_id[donors[(stem, t)]]
+        swapped = swap_record(record, t, donor)
+        for rendering in SWAP_RENDERINGS:
+            label = f"{rendering}-swap"
+            true_row, true_answer = holdout_row(record, t, rendering)
+            row, answer = holdout_row(swapped, t, rendering)
+            if (
+                row["text"][answer[0] : answer[1]]
+                != true_row["text"][true_answer[0] : true_answer[1]]
+            ):
+                raise ValueError(f"{stem}#{t}: swapped answer text differs from true")
+            item = item_of(stem, t, label, answer)
+            items.append(item)
+            rows[(stem, t, label)] = row
+            swap_texts[f"{stem}#{t}#{label}"] = {
+                "typed": donor["renderings"][str(t)]["typed"]["text"],
+                "true_typed": record["renderings"][str(t)]["typed"]["text"],
+                "reference": texts[f"{stem}#{t}"]["reference"],
+                "donor": donor["id"],
+            }
+    return items, rows, swap_texts, {f"{s}#{t}": d for (s, t), d in donors.items()}
 
 
 class Batch:
@@ -189,19 +259,16 @@ def decode_all(
     lm: Any,
     spm: Any,
     label: str,
-    items: Sequence[Item],
+    batches: Sequence[Sequence[Item]],
     rows: dict[tuple[str, int, str], dict[str, Any]],
     texts: dict[str, Any],
     out: pathlib.Path,
-    budget: int,
-    max_batch: int,
 ) -> list[dict[str, Any]]:
     def decode(ids: list[int]) -> str:
         return str(spm.DecodeIds([int(i) for i in ids]))
 
     timings: list[dict[str, Any]] = []
-    batches = pack(items, budget, max_batch)
-    print(f"{label}: {len(items)} items in {len(batches)} batches")
+    print(f"{label}: {sum(len(b) for b in batches)} items in {len(batches)} batches")
     for b, group in enumerate(batches):
         t0 = time.monotonic()
         batch = Batch(
@@ -231,7 +298,12 @@ def decode_all(
             (out / "codes.jsonl").open("a") as fc,
         ):
             for it, gen_ids, own in zip(group, ids, codes, strict=True):
-                t = texts[f"{it.stem}#{it.turn}"]
+                swapped = it.rendering.endswith("-swap")
+                t = texts[
+                    f"{it.stem}#{it.turn}#{it.rendering}"
+                    if swapped
+                    else f"{it.stem}#{it.turn}"
+                ]
                 key = {
                     "model": label,
                     "stem": it.stem,
@@ -248,6 +320,14 @@ def decode_all(
                             "ids": gen_ids,
                             "prefix": it.prefix,
                             "window": it.window,
+                            **(
+                                {
+                                    "donor": t["donor"],
+                                    "true_pupil": answer_words(t["true_typed"], decode),
+                                }
+                                if swapped
+                                else {}
+                            ),
                         }
                     )
                     + "\n"
@@ -279,6 +359,7 @@ def main() -> None:
         .splitlines()
     ]
     items, rows, texts = build_items(records, args.limit)
+    pairs = [(k.rsplit("#", 1)[0], int(k.rsplit("#", 1)[1])) for k in texts]
     out = root / args.name / "sidebyside"
     out.mkdir(parents=True, exist_ok=True)
     for f in ("answers.jsonl", "codes.jsonl"):
@@ -286,9 +367,29 @@ def main() -> None:
     print(f"side by side: {len(texts)} turns, {len(items)} items")
 
     base = load_base(args.base)
+    swap_items: list[Item] = []
+    donors: dict[str, str] = {}
+    if args.swap_turns:
+
+        def spm_decode(ids: list[int]) -> str:
+            return str(base.spm.DecodeIds([int(i) for i in ids]))
+
+        swap_items, swap_rows, swap_texts, donors = build_swap_items(
+            records, args.swap_turns, spm_decode, pairs, texts
+        )
+        rows.update(swap_rows)
+        texts.update(swap_texts)
+        print(f"swap: {len(swap_items)} items at turns {args.swap_turns}")
+    true_items = [] if args.swap_only else items
+    batches = schedule(true_items, swap_items, args.budget, args.max_batch)
     print("describe:", describe(base))
     base.lm.dep_q = PROBE_DEP_Q  # this job only, as in the probe
-    meta: dict[str, Any] = {"args": vars(args), "models": {}}
+    meta: dict[str, Any] = {
+        "args": vars(args),
+        "swap_turns": args.swap_turns,
+        "donors": donors,
+        "models": {},
+    }
 
     def go(label: str, info: dict[str, Any]) -> None:
         base.lm.eval()
@@ -299,12 +400,10 @@ def main() -> None:
                 base.lm,
                 base.spm,
                 label,
-                items,
+                batches,
                 rows,
                 texts,
                 out,
-                args.budget,
-                args.max_batch,
             )
         meta["models"][label] = {
             **info,

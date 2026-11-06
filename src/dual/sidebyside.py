@@ -6,7 +6,8 @@ answer and lets the model generate the answer window.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import copy
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,7 @@ from dual.constants import CODEBOOKS, DELAYS
 from dual.probe_text import content_ids, words_of
 
 RENDERINGS = ("typed", "A", "B")
+SWAP_RENDERINGS = ("typed", "A")
 
 
 @dataclass(frozen=True)
@@ -118,3 +120,56 @@ def answer_words(ids: Sequence[int], decode: Callable[[list[int]], str]) -> str:
 
 def same_words(a: str, b: str) -> bool:
     return words_of(a) == words_of(b)
+
+
+def answer_head(text: str) -> str:
+    """The normalised words before the first comma."""
+    return " ".join(words_of(text.split(",", 1)[0]))
+
+
+def pick_donors(
+    order: Sequence[str],
+    heads: Mapping[tuple[str, int], str],
+    turns: Sequence[int],
+) -> dict[tuple[str, int], str]:
+    """For each (stem, turn) in `heads` with turn in `turns`: the first stem after it in
+    `order`, cyclically, that has that turn and a different head."""
+    out: dict[tuple[str, int], str] = {}
+    for i, stem in enumerate(order):
+        for turn in turns:
+            if (stem, turn) not in heads:
+                continue
+            for step in range(1, len(order)):
+                other = order[(i + step) % len(order)]
+                if (other, turn) in heads and heads[(other, turn)] != heads[
+                    (stem, turn)
+                ]:
+                    out[(stem, turn)] = other
+                    break
+            else:
+                raise ValueError(
+                    f"no donor with a different head for {stem} turn {turn}"
+                )
+    return out
+
+
+def swap_record(
+    record: dict[str, Any], turn: int, donor: dict[str, Any]
+) -> dict[str, Any]:
+    """A copy of `record` whose renderings of `turn` are the donor's."""
+    for r in (record, donor):
+        if turn not in r["pupil_turns"]:
+            raise ValueError(f"{r['id']}: turn {turn} is not a pupil turn")
+    out = dict(record)
+    out["renderings"] = {
+        **record["renderings"],
+        str(turn): copy.deepcopy(donor["renderings"][str(turn)]),
+    }
+    return out
+
+
+def schedule(
+    true_items: Sequence[Item], swap_items: Sequence[Item], budget: int, max_batch: int
+) -> list[list[Item]]:
+    """The true items' batches exactly as `pack` makes them, then the swap items'."""
+    return pack(true_items, budget, max_batch) + pack(swap_items, budget, max_batch)
