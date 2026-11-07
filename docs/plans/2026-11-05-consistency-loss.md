@@ -1496,7 +1496,8 @@ Vlad, at B12's GATE ("Weight-3 epoch 3 looks close to healthy at ratio 1.87, wit
   - Both ran in B12's batch shapes with B12's donor map, peak 38.9 GiB.
 - **Judging:** a fresh blind pool over all eight checkpoints, built by `combine8.py` (it reproduces B12's input exactly) and `blind4.py`, byte-identical on rebuild. 35 opus judges. On the shared items they agree with B12's labels in 696/780 (substance), 1,141/1,170 (uptake) and 605/624 (swap).
 - **Result** (`docs/results/consistency-3.md`):
-  - **(a) The swap slip is mostly epoch 3.** Baseline e3 is at 95/104 (its e2 100), λ3 e3 at 91/104. Paired, 8 vs 4 discordant, p 0.39. The misses are the same kind and share 5 items.
+  - **(a) About half the swap slip is epoch 3.** Baseline e3 is at 95/104 (its e2 100), λ3 e3 at 91/104. Paired, 8 vs 4 discordant, p 0.39; 5 misses are shared. λ3 trails λ = 0 by 2/4/4 at e1-e3 (pooled 17 vs 7, p 0.064, post hoc), so the term's share is unresolved.
   - **(b) λ3 e1 is like baseline e1.** It is silent after the spoken opening in 12/13 and 9/13 (baseline 11/13, 10/13), stops 8/14/11 against 16/9/8, and its swap is 99 against 101. Its typed opening is worse: 4/13 silent, onset frames 4-12.
-  - **Verdict:** λ3 e3 is healthy against λ = 0 e3 at bar R 1.87 (base e3 2.87). λ3 e2 is not: its typed opening is late. No checkpoint passes the bar.
-- **GATE:** (a) λ3 e3 to the engine; (b) second λ3 seed plus a λ = 0 e3 control; (c) voice-D teacher rows at λ = 3 (plan, recommended); (d) λ 1-2 (not indicated); (e) stop the line and revisit the bar.
+  - **Verdict:** λ3 e3 cannot be told apart from λ = 0 e3 at this resolution (bar R 1.87; base e3 2.87). It is the best candidate. λ3 e2 is not: its typed opening is late. No checkpoint passes the bar.
+- **Reviews:** sonnet found no blockers. Opus recomputed every number: all reproduce except the substance shift, which is 4, not 7. Both asked for softer wording on "mostly epoch 3", "healthy" and "term-independent", and for (b) to be weighed against (c); all applied.
+- **GATE:** (a) λ3 e3 to the engine; (b) second λ3 seed plus a λ = 0 e3 control (~7 GPU-hours, recommended); (c) voice-D teacher rows at λ = 3 (plan); (d) λ 1-2 (weak); (e) stop the line and revisit the bar.
