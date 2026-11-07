@@ -1,0 +1,11 @@
+- "engages": "yes" if its opening takes up the specific thing the pupil said (their answer,
+  claim, number, guess or question: e.g. agrees with it, corrects it, quotes or reuses it); "no"
+  if it carries on the lesson without reference to what the pupil said, or answers something the
+  pupil did not say.
+- "verdict": "agree", "correct", "ask_back", "none", or "na" for an opening question by the pupil.
+- "matches_tape": "yes" if its move on the pupil's turn is the same as the tape_tutor_answer's
+  (same verdict and direction), "no" otherwise.
+Judge mainly the first two sentences.
+- "well_formed": "no" if the answer is garbled, broken mid-word, ungrammatical to the point of
+  nonsense, a bare fragment, or loops repeating itself; "yes" otherwise. A silent answer is "no".
+Output keys: id, engages, verdict, matches_tape, well_formed, why (at most 12 words).
