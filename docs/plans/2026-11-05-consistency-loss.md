@@ -1501,3 +1501,37 @@ Vlad, at B12's GATE ("Weight-3 epoch 3 looks close to healthy at ratio 1.87, wit
   - **Verdict:** λ3 e3 cannot be told apart from λ = 0 e3 at this resolution (bar R 1.87; base e3 2.87). It is the best candidate. λ3 e2 is not: its typed opening is late. No checkpoint passes the bar.
 - **Reviews:** sonnet found no blockers. Opus recomputed every number: all reproduce except the substance shift, which is 4, not 7. Both asked for softer wording on "mostly epoch 3", "healthy" and "term-independent", and for (b) to be weighed against (c); all applied.
 - **GATE:** (a) λ3 e3 to the engine; (b) second λ3 seed plus a λ = 0 e3 control (~7 GPU-hours, recommended); (c) voice-D teacher rows at λ = 3 (plan); (d) λ 1-2 (weak); (e) stop the line and revisit the bar.
+
+## Batch B14: λ = 3 seed 1, with the seed-1 baseline's epoch-3 decode (2026-11-07)
+
+Vlad, at B13's GATE ("Weight-3 epoch 3 matches the baseline's behaviour at ratio 1.87. What next?"): **"Second weight-3 seed (Recommended)"**, "Repeat the run with another seed and decode epochs 2-3 plus a baseline epoch 3 of that seed. About 7 GPU-hours, no code. Doubles the evidence before betting a render on weight 3." This batch runs exactly that: no render, no new loss variant, no repo code, and ends at a GATE.
+
+**The questions.**
+1. Does "λ3 epoch 3 is behaviourally healthy and R ≈ 1.9" replicate on a second seed?
+2. Is there a consistent swap-follow cost of the term? Seed 0 alone: λ3 e3 91/104 against λ0 e3 95/104 (paired 8 vs 4, p 0.39).
+
+**Comparable by construction.**
+- Seed: `--seed 1`, the value ladder 2's second baseline seed `ladder2-pp-s1` used. `--seed` sets `torch.manual_seed` (LoRA init) and the batch-order `random.Random`; the term draws no randomness. So `cons1-pp-l3-s1` and `ladder2-pp-s1` share init and batch order, as `cons1-pp-l3` and `ladder-personaplex-1` do at seed 0.
+- Train: identical to `cons1-pp-l3` except `--seed 1`: from scratch, 3 epochs, 117 stems, rank 16, LR 2e-5, `--consistency 3` (teacher = live student on the all-tape row), per-epoch checkpoints, 64 GiB cap. Same image `cons1:9690aa5`. Images differ across λ0 runs as at seed 0 (`ladder2:5a2d32e` for `ladder2-pp-s1`); the train code path for λ = 0 is unchanged.
+- The ladder runs from a frozen scratchpad copy of `scripts/ladder.sh` with one extra run list, `cons1-pp-l3-s1,personaplex,1,3,--consistency,3,--seed,1` (train, measure, `make bar`). Nothing in the repo changes.
+- Side-by-side: B12/B13's image `sbs2:72868db`, holdout, renderings, greedy decode, budget 48,000, max batch 64, `--mem-cap-gib 64`, `--no-bare --swap-turns 2,6`; true rows in B7's shapes (53/35/29/26/23/21/8), swap rows in 28/24. All three checkpoints exist on the box (`ladder2-pp-s1/train/model-epoch-03.pt` checked 2026-11-07).
+- Judging: one fresh blind pool over the eleven checkpoints (B13's eight plus the three new), B10's rubrics verbatim, one opus judge per ~98-item chunk reading only `items.jsonl` and `rubric.txt`.
+
+**Pre-registered (written before any seed-1 number exists).**
+- The bar: `make noise VARIANTS=personaplex-cons1-pp-l3-s1` gives the rule's verdict (decided at the lowest-gap epoch, R0 3.00, T 0.5). R per epoch and the same-epoch paired CI against `ladder2-pp-s1` are reported next to it, marked post hoc as in B12.
+- **Replicates** iff seed-1 λ3 e3 has R within 0.5 of 1.87 (that is, ≤ 2.37) **and** is behaviourally healthy against λ0 seed-1 e3: speaks after the spoken opening in ≥ 12/13 for both A and B, typed-opening onset by frame 4 in ≥ 11/13, mid-lesson stops ≤ 3 of 52 in each rendering, and swap-follow within 5 of λ0 seed-1 e3. Fails on R, on behaviour, or on both: say which.
+- **Consistent swap cost** iff λ3 e3 trails λ0 e3 at both seeds and the pooled paired McNemar over 208 items (the 104 items at each seed, paired λ3 against λ0 of the same seed) has p < 0.05. Trailing at both seeds with p ≥ 0.05 is "a lean, unresolved"; otherwise "no consistent cost".
+
+### Task B14.1: run it (the orchestrator; one job at a time, drama3 stopped, watchdog on)
+
+1. `sbs-s1-e3`: `IMAGE=spark.local:5000/vlad/sbs2:72868db make sidebyside NAME=sbs-s1-e3 BASE=personaplex RENDER=render-1 RUN=ladder2-pp-s1 EPOCH=3 ARGS='--no-bare --swap-turns 2,6 --mem-cap-gib 64'` (~45 GPU-min). Submitted first; the train queues behind it.
+2. The frozen ladder with `IMAGE=spark.local:5000/vlad/cons1:9690aa5`: train `cons1-pp-l3-s1` (~3.6 h), `measure-cons1-pp-l3-s1` (~75 min), `make bar`. Resume a hung train with `make train NAME=cons1-pp-l3-s1 BASE=personaplex SLICE=1 RENDER=render-1 EPOCHS=3 ARGS='--consistency 3 --seed 1 --resume'`, then the measure by hand.
+3. `sbs-l3s1-e2` and `sbs-l3s1-e3`: as 1 with `RUN=cons1-pp-l3-s1 EPOCH=2|3`.
+4. Check each meta: batch shapes as B12, adapter norm, peak memory.
+
+### Task B14.2: read it, blind judging (opus judges) and `docs/results/consistency-4.md`
+
+- Bar: noise verdict, R per epoch for both seeds and both λ, `make position`, held text loss and mean `cons` per epoch, turn-0 lead-frame KL(typed‖A) per epoch.
+- Pool: B13's `combine8.py` extended to eleven checkpoints (it must reproduce B13's eight-checkpoint input exactly), `blind4.py` (seed 13), agreement with B13's labels on the shared items reported.
+- The behaviour table for all eleven, the pooled 208-item swap comparison, the replication verdict per the pre-registered criteria.
+- `make check`, sonnet review, opus review (recompute every number), merge `--no-ff`, plan records the run, memory notes, push main. End at a GATE.
