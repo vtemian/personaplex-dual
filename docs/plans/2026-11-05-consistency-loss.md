@@ -1550,8 +1550,17 @@ Vlad, at B13's GATE ("Weight-3 epoch 3 matches the baseline's behaviour at ratio
   - **The bar:** R per epoch for λ3 s1 is 2.30 / 2.09 / **1.87**, against seed 0's 2.51 / 1.95 / 1.87.
   - **The rule:** **down** (R_gap 2.09 at epoch 2, −0.90, CIs [−1.43, −0.59] / [−1.75, −0.26]).
   - **Same-epoch e3 against λ = 0 s1:** −1.28 [−1.68, −0.84].
-  - **Held text:** +1.8%, −2.0% and −7.1% against λ = 0 s1.
+  - **Held text:** +1.8%, −2.0% and −7.2% against λ = 0 s1.
   - **Turn-0 lead KL:** 0.041 / 0.188 / 0.411.
   - **Replication (pre-registered): passes every criterion.** λ3 s1 e3 speaks 13/13 after the spoken opening, its typed onset is frame 3 in 13/13, stops are 1/3/1, and swap is 95 against λ = 0 s1 e3's 97.
   - **Swap cost (pre-registered): "a lean, unresolved".** λ3 trails at both seeds by 1-2 items. Pooled 208: 191 against 188, 14 vs 11 discordant, p 0.69.
   - **λ3 s1 e2** opens on time but follows the pupil only 90/104, so epoch 2 is not a stable stage across seeds.
+- **Reviews:**
+  - **Sonnet:** no blockers. It asked for the stop contrast (λ3 has slightly more stops than λ = 0 at both seeds), a corrected lead-KL reading (consistent with B13's pattern, untested below 0.1 at seed 1), "neither shown nor excluded" for the swap cost, a softer ceiling claim, and a reproduction recipe. All applied, and `qual4.py` is now committed in `pool/`.
+  - **Opus** recomputed every number and confirmed the blinding and the pre-registration timestamp (c542c36, before the first submit). All reproduce except these, now corrected:
+    - the post-hoc affirmation share of the misses: swap-row answers had been read as empty. It is 15/20 against 13/17, so **no lean toward λ3**;
+    - seed 0's max grad (13.7, not 11.5);
+    - −7.2%, not −7.1%;
+    - 0.90-1.13.
+    - It also asked for post-hoc marks on the Wald interval, the seed-vs-seed counts and the epoch-2 reading.
+- **GATE:** (a) voice-D TTS teacher rows at λ3 (needs a plan; the only lever on the ~1.8 ceiling); (b) λ3 epoch 3 to the engine; (c) λ 1-2; (d) stop the consistency line and revisit the bar.
