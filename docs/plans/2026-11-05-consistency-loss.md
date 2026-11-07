@@ -1463,3 +1463,41 @@ Files: `scripts/ladder.sh`, `tests/test_ladder_sh.py`. `LADDER=4` runs one run, 
     - λ10 re-enters the silent opening rather than staying in it;
     - each option costs ~6.5 GPU-hours.
 - **GATE:** (a) the baseline's epoch 3 and λ3's epoch 1 decodes (~1.6 GPU-hours, recommended first), (b) a second λ = 3 seed, (c) λ = 3 without turn 0, (d) λ 1-2, (e) voice D, (f) stop the line.
+
+## Batch B13: control decodes, the baseline's epoch 3 and λ3's epoch 1 (2026-11-07)
+
+Vlad, at B12's GATE ("Weight-3 epoch 3 looks close to healthy at ratio 1.87, with one unverified flaw. What next?"): **"Control decodes first (Recommended)"**, "Decode the baseline's epoch 3 and weight-3 epoch 1. About 1.6 GPU-hours, no training, no code. Shows whether the 94-of-104 slip is the loss or a normal epoch-3 effect, so epoch 3 can be judged fairly." This batch runs exactly that: no training, no render, no code, and ends at a GATE.
+
+**The questions.**
+1. Is λ3 epoch 3's swap slip (played turn taken up 94/104, against 101/104 for the baseline's epoch 2) an epoch-3 effect or the term? The baseline's own epoch 3 (`ladder-personaplex-1`, λ = 0, held text 0.6105) is the same-epoch control: LR is constant, so its epoch 3 is the same point in training.
+2. Does λ3 epoch 1 look like the baseline's epoch 1 (silent after the spoken opening, mid-lesson fragments)? Its turn-0 lead-frame KL 0.062 predicts a silent opening.
+3. Then: which λ3 epoch, if any, is behaviourally healthy against the λ = 0 checkpoint at the same epoch, and what is its bar R (e1 2.51, e2 1.95, e3 1.87)?
+
+**Comparable by construction.** B12's image `sbs2:72868db`, job, holdout, renderings, greedy decode, budget 48,000, max batch 64, `--mem-cap-gib 64`, `--no-bare --swap-turns 2,6` (B10's donor map), so true rows land in B7's batch shapes (53/35/29/26/23/21/8) and swap rows in 28/24. Both checkpoints exist on the box (`ladder-personaplex-1/train/model-epoch-03.pt`, `cons1-pp-l3/train/model-epoch-01.pt`), so the job selects them with `--run/--epoch` and no code changes.
+
+### Task B13.1: run it (the orchestrator; one job at a time, drama3 stopped, watchdog on)
+
+1. `sbs-base-e3`: `IMAGE=spark.local:5000/vlad/sbs2:72868db make sidebyside NAME=sbs-base-e3 BASE=personaplex RENDER=render-1 RUN=ladder-personaplex-1 EPOCH=3 ARGS='--no-bare --swap-turns 2,6 --mem-cap-gib 64'` (195 true + 52 swap rows, ~48 GPU-min).
+2. `sbs-l3-e1`: the same with `RUN=cons1-pp-l3 EPOCH=1`, queued behind it.
+3. Check each meta: batch shapes as B12, adapter norm, peak memory.
+
+### Task B13.2: blind judging (opus judges) and `docs/results/consistency-3.md`
+
+- One fresh blind pool over all eight checkpoints (base-e1/e2/e3, l10-e1/e2, l3-e1/e2/e3), B10's rubrics verbatim, `blind4.py` (seed 13, ~98 items per chunk; swap ~105), one opus judge per chunk reading only its `items.jsonl` and `rubric.txt`. Agreement with B12's labels on the shared items is reported.
+- The table for all eight: speaks after spoken opening (A/B of 13), opening uptake and tape's-move match (typed/A/B of 13), typed-opening onset frame, mid-lesson uptake, mid-sentence stops, median length, swap-follow of 104, substance typed-vs-A and A-vs-B, bar R per checkpoint where measured.
+- The answers: (a) swap slip at λ3 e3 vs baseline e3 (paired McNemar on the 104 items, plus judge-noise reading); (b) λ3 e1 vs baseline e1; a verdict per epoch against the λ = 0 checkpoint at the same epoch.
+- `make check`, sonnet review, opus review (recompute the numbers), merge `--no-ff`, plan records the run, memory note. End at a GATE.
+
+### B13 as run (2026-11-07)
+
+- **Jobs**, one at a time. drama3 was stopped and the watchdog ran. No code, no training. 1.51 GPU-hours against the 1.6 estimated:
+  - `sbs-base-e3` (`job-20261107-090658`): 2,719 s, adapter norm 27.73.
+  - `sbs-l3-e1` (`job-20261107-090705`): 2,720 s, adapter norm 26.81.
+  - Both ran in B12's batch shapes with B12's donor map, peak 38.9 GiB.
+- **Judging:** a fresh blind pool over all eight checkpoints, built by `combine8.py` (it reproduces B12's input exactly) and `blind4.py`, byte-identical on rebuild. 35 opus judges. On the shared items they agree with B12's labels in 696/780 (substance), 1,141/1,170 (uptake) and 605/624 (swap).
+- **Result** (`docs/results/consistency-3.md`):
+  - **(a) About half the swap slip is epoch 3.** Baseline e3 is at 95/104 (its e2 100), λ3 e3 at 91/104. Paired, 8 vs 4 discordant, p 0.39; 5 misses are shared. λ3 trails λ = 0 by 2/4/4 at e1-e3 (pooled 17 vs 7, p 0.064, post hoc), so the term's share is unresolved.
+  - **(b) λ3 e1 is like baseline e1.** It is silent after the spoken opening in 12/13 and 9/13 (baseline 11/13, 10/13), stops 8/14/11 against 16/9/8, and its swap is 99 against 101. Its typed opening is worse: 4/13 silent, onset frames 4-12.
+  - **Verdict:** λ3 e3 cannot be told apart from λ = 0 e3 at this resolution (bar R 1.87; base e3 2.87). It is the best candidate. λ3 e2 is not: its typed opening is late. No checkpoint passes the bar.
+- **Reviews:** sonnet found no blockers. Opus recomputed every number: all reproduce except the substance shift, which is 4, not 7. Both asked for softer wording on "mostly epoch 3", "healthy" and "term-independent", and for (b) to be weighed against (c); all applied.
+- **GATE:** (a) λ3 e3 to the engine; (b) second λ3 seed plus a λ = 0 e3 control (~7 GPU-hours, recommended); (c) voice-D teacher rows at λ = 3 (plan); (d) λ 1-2 (weak); (e) stop the line and revisit the bar.
