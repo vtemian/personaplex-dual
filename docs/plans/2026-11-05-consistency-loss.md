@@ -1487,3 +1487,16 @@ Vlad, at B12's GATE ("Weight-3 epoch 3 looks close to healthy at ratio 1.87, wit
 - The table for all eight: speaks after spoken opening (A/B of 13), opening uptake and tape's-move match (typed/A/B of 13), typed-opening onset frame, mid-lesson uptake, mid-sentence stops, median length, swap-follow of 104, substance typed-vs-A and A-vs-B, bar R per checkpoint where measured.
 - The answers: (a) swap slip at λ3 e3 vs baseline e3 (paired McNemar on the 104 items, plus judge-noise reading); (b) λ3 e1 vs baseline e1; a verdict per epoch against the λ = 0 checkpoint at the same epoch.
 - `make check`, sonnet review, opus review (recompute the numbers), merge `--no-ff`, plan records the run, memory note. End at a GATE.
+
+### B13 as run (2026-11-07)
+
+- **Jobs**, one at a time. drama3 was stopped and the watchdog ran. No code, no training. 1.51 GPU-hours against the 1.6 estimated:
+  - `sbs-base-e3` (`job-20261107-090658`): 2,719 s, adapter norm 27.73.
+  - `sbs-l3-e1` (`job-20261107-090705`): 2,720 s, adapter norm 26.81.
+  - Both ran in B12's batch shapes with B12's donor map, peak 38.9 GiB.
+- **Judging:** a fresh blind pool over all eight checkpoints, built by `combine8.py` (it reproduces B12's input exactly) and `blind4.py`, byte-identical on rebuild. 35 opus judges. On the shared items they agree with B12's labels in 696/780 (substance), 1,141/1,170 (uptake) and 605/624 (swap).
+- **Result** (`docs/results/consistency-3.md`):
+  - **(a) The swap slip is mostly epoch 3.** Baseline e3 is at 95/104 (its e2 100), λ3 e3 at 91/104. Paired, 8 vs 4 discordant, p 0.39. The misses are the same kind and share 5 items.
+  - **(b) λ3 e1 is like baseline e1.** It is silent after the spoken opening in 12/13 and 9/13 (baseline 11/13, 10/13), stops 8/14/11 against 16/9/8, and its swap is 99 against 101. Its typed opening is worse: 4/13 silent, onset frames 4-12.
+  - **Verdict:** λ3 e3 is healthy against λ = 0 e3 at bar R 1.87 (base e3 2.87). λ3 e2 is not: its typed opening is late. No checkpoint passes the bar.
+- **GATE:** (a) λ3 e3 to the engine; (b) second λ3 seed plus a λ = 0 e3 control; (c) voice-D teacher rows at λ = 3 (plan, recommended); (d) λ 1-2 (not indicated); (e) stop the line and revisit the bar.
