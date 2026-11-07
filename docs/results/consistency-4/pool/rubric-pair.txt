@@ -1,0 +1,13 @@
+For each pair decide, judging SUBSTANCE not wording:
+- "same": X and Y make the same pedagogical move on the pupil's turn: the same verdict on what the
+  pupil said (agree / correct / ask back), the same mathematical claim or example direction and
+  the same next step. Different numbers or wording within the same move still count as "same".
+  Small slips are fine.
+- "differs": they make a different move: one accepts what the pupil said and the other corrects
+  it; they reach different conclusions; one engages the pupil's turn and the other ignores it or
+  answers something else; they go to clearly different content.
+Judge mainly the first two sentences (the part that responds to the pupil); later drift counts
+only if it contradicts the opening.
+Also give, for each pair, "x_engages" and "y_engages": "yes" if the answer takes up the specific
+thing the pupil said (their answer, claim, number or question), "no" if it does not.
+Output keys: id, substance, x_engages, y_engages, why (at most 15 words).

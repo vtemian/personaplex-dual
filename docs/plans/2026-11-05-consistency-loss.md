@@ -1535,3 +1535,23 @@ Vlad, at B13's GATE ("Weight-3 epoch 3 matches the baseline's behaviour at ratio
 - Pool: B13's `combine8.py` extended to eleven checkpoints (it must reproduce B13's eight-checkpoint input exactly), `blind4.py` (seed 13), agreement with B13's labels on the shared items reported.
 - The behaviour table for all eleven, the pooled 208-item swap comparison, the replication verdict per the pre-registered criteria.
 - `make check`, sonnet review, opus review (recompute every number), merge `--no-ff`, plan records the run, memory notes, push main. End at a GATE.
+
+### B14 as run (2026-11-07)
+
+- **Jobs**, one at a time, `--mem-cap-gib 64`. drama3 stayed down and the watchdog never had to stop it. No repo code changed: the ladder ran from a frozen scratchpad copy with one extra run list. 7.37 GPU-hours (26,543 s) against ~7 estimated.
+  - `sbs-s1-e3` (`job-20261107-125420`): 2,913 s.
+  - `cons1-pp-l3-s1` (`job-20261107-125429`): 3 × ~4,305 s, peak 56.0 GiB, max grad 36.5 in epoch 3 (one spike).
+  - `measure-cons1-pp-l3-s1` (`job-20261107-172426`): 4,551 s, then `make bar`.
+  - `sbs-l3s1-e2` (`job-20261107-172500`): 2,890 s.
+  - `sbs-l3s1-e3` (`job-20261107-172507`): 2,909 s.
+  - The `ladder2-pp-s1` epoch-3 checkpoint existed, so no baseline was retrained.
+- **Judging:** one fresh blind pool over eleven checkpoints. B13's `combine8.py` reproduces its input byte for byte, and `blind4.py` rebuilds were byte-identical. 48 opus judges. On B13's shared items they agree with its labels in 807/832 (swap) and 937/1,040 (substance).
+- **Result** (`docs/results/consistency-4.md`):
+  - **The bar:** R per epoch for λ3 s1 is 2.30 / 2.09 / **1.87**, against seed 0's 2.51 / 1.95 / 1.87.
+  - **The rule:** **down** (R_gap 2.09 at epoch 2, −0.90, CIs [−1.43, −0.59] / [−1.75, −0.26]).
+  - **Same-epoch e3 against λ = 0 s1:** −1.28 [−1.68, −0.84].
+  - **Held text:** +1.8%, −2.0% and −7.1% against λ = 0 s1.
+  - **Turn-0 lead KL:** 0.041 / 0.188 / 0.411.
+  - **Replication (pre-registered): passes every criterion.** λ3 s1 e3 speaks 13/13 after the spoken opening, its typed onset is frame 3 in 13/13, stops are 1/3/1, and swap is 95 against λ = 0 s1 e3's 97.
+  - **Swap cost (pre-registered): "a lean, unresolved".** λ3 trails at both seeds by 1-2 items. Pooled 208: 191 against 188, 14 vs 11 discordant, p 0.69.
+  - **λ3 s1 e2** opens on time but follows the pupil only 90/104, so epoch 2 is not a stable stage across seeds.
