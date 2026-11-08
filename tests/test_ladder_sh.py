@@ -531,3 +531,31 @@ def test_ladder_4_rejects_a_ladder_3_run_name(box):
     assert r.returncode == 2
     assert "cons1-pp-l3" in r.stdout + r.stderr
     assert submits(log) == []
+
+
+def test_ladder_6_runs_the_voiced_teacher_on_render_2(box):
+    r, log = box(LADDER="6")
+    assert r.returncode == 0, r.stderr
+    assert submits(log) == [
+        "make IMAGE=img:tag -s train NAME=voiced1-pp-l3 BASE=personaplex SLICE=1"
+        " RENDER=render-2 EPOCHS=3 ARGS=--consistency 3 --teacher voiced",
+        "make IMAGE=img:tag -s measure NAME=voiced1-pp-l3 BASE=personaplex"
+        " RUN=voiced1-pp-l3 RENDER=render-2",
+    ]
+    assert " bar BOX=vlad@box" in log[-1]
+
+
+def test_ladder_6_train_carries_exactly_one_args_word(box, tmp_path):
+    r, _ = box(LADDER="6")
+    assert r.returncode == 0, r.stderr
+    (train,) = [c for c in argv_calls(tmp_path) if "train" in c]
+    assert [w for w in train if w.startswith("ARGS=")] == [
+        "ARGS=--consistency 3 --teacher voiced"
+    ]
+
+
+def test_ladder_6_rejects_a_ladder_4_run_name(box):
+    r, log = box(LADDER="6", FROM="cons1-pp-l3")
+    assert r.returncode == 2
+    assert "voiced1-pp-l3" in r.stdout + r.stderr
+    assert submits(log) == []

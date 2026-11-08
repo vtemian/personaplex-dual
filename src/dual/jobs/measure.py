@@ -9,6 +9,8 @@ Each jsonl line also has content_mask (0/1 per answer frame, 1 where the target 
 is not PAD) and per_frame ({pair: [KL per frame, 6 significant digits]}).
 --epochs N [N ...] measures only those checkpoints (with --run); --tag T labels a
 partial pass apart from a full run.
+Labels a render added past A/B/C (stems.json `voices`, B15) add gap_L = KL(typed || L),
+floor_L = KL(L || A), floor_L_b = KL(L || B); render-1 adds none.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import pathlib
 import re
 import statistics
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import torch
@@ -38,6 +40,26 @@ PAIRS = (
     ("tape_gap", "typed", "tape"),
     ("tape_floor", "tape", "A"),
 )
+BAR_VOICES = ("A", "B", "C")
+Pair = tuple[str, str, str]
+
+
+def extra_labels(voices: Mapping[str, str]) -> tuple[str, ...]:
+    """Rendering labels a render added past the bar's A, B, C (B15: the teacher's)."""
+    return tuple(sorted(v for v in voices if v not in BAR_VOICES))
+
+
+def plan_pairs(extra: Sequence[str]) -> tuple[tuple[str, ...], tuple[Pair, ...]]:
+    """The renderings and pairs to measure: the bar's, plus per added label L
+    gap_L = KL(typed || L), floor_L = KL(L || A) and floor_L_b = KL(L || B)."""
+    pairs = list(PAIRS)
+    for lab in extra:
+        pairs += [
+            (f"gap_{lab}", "typed", lab),
+            (f"floor_{lab}", lab, "A"),
+            (f"floor_{lab}_b", lab, "B"),
+        ]
+    return (*RENDERINGS, *extra), tuple(pairs)
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,11 +115,13 @@ def select_ckpts(
     return [by_epoch[e] for e in sorted(set(epochs))]
 
 
-def pair_fields(lps: dict[str, torch.Tensor], targets: list[int]) -> dict[str, Any]:
+def pair_fields(
+    lps: dict[str, torch.Tensor], targets: list[int], pairs: Sequence[Pair] = PAIRS
+) -> dict[str, Any]:
     """One turn's per-pair AnswerKL dicts, content_mask and per_frame KL."""
     out: dict[str, Any] = {}
     per_frame: dict[str, list[float]] = {}
-    for key, p, q in PAIRS:
+    for key, p, q in pairs:
         out[key] = dataclasses.asdict(answer_kl(lps[p], lps[q], targets))
         per_frame[key] = [
             float(f"{x:.6g}") for x in kl_per_frame(lps[p], lps[q]).tolist()
@@ -130,13 +154,20 @@ def summarise(
         "content": _bar_dict(col("gap", "content"), col("floor", "content")),
         "all": _bar_dict(col("gap", "all_frames"), col("floor", "all_frames")),
     }
-    for key in ("door", "tape_gap", "tape_floor"):
+    added = [k for k in (lines[0] if lines else {}) if k.startswith(("gap_", "floor_"))]
+    for key in ("door", "tape_gap", "tape_floor", *added):
         out[f"{key}_median"] = statistics.median(col(key, "content"))
         out[f"{key}_all_median"] = statistics.median(col(key, "all_frames"))
     return out
 
 
-def turn_lines(lm: Any, records: Sequence[dict[str, Any]], epoch: int) -> list[Any]:
+def turn_lines(
+    lm: Any,
+    records: Sequence[dict[str, Any]],
+    epoch: int,
+    renderings: Sequence[str] = RENDERINGS,
+    pairs: Sequence[Pair] = PAIRS,
+) -> list[Any]:
     from dual.model import codes_from_row, forward
     from dual.render import holdout_row
 
@@ -145,7 +176,7 @@ def turn_lines(lm: Any, records: Sequence[dict[str, Any]], epoch: int) -> list[A
         for k in record["pupil_turns"]:
             lps: dict[str, torch.Tensor] = {}
             targets: list[int] | None = None
-            for rendering in RENDERINGS:
+            for rendering in renderings:
                 row, (start, end) = holdout_row(record, k, rendering)
                 window = list(row["text"][start:end])
                 if targets is None:
@@ -157,9 +188,9 @@ def turn_lines(lm: Any, records: Sequence[dict[str, Any]], epoch: int) -> list[A
                     raise ValueError(f"{row['id']}: masked frames in the answer")
                 lps[rendering] = log_probs(out.text_logits[0, start:end])
             assert targets is not None
-            fields = pair_fields(lps, targets)
+            fields = pair_fields(lps, targets, pairs)
             line: dict[str, Any] = {"stem": record["id"], "turn": k, "epoch": epoch}
-            for key, _, _ in PAIRS:
+            for key, _, _ in pairs:
                 line[key] = fields[key]
             line["answer_frames"] = len(targets)
             line["content_frames"] = fields["gap"]["content_frames"]
@@ -189,6 +220,9 @@ def main() -> None:
     records = [
         json.loads(line) for line in (render / "holdout.jsonl").read_text().splitlines()
     ]
+    voices = json.loads((render / "stems.json").read_text()).get("voices", {})
+    renderings, pairs = plan_pairs(extra_labels(voices))
+    print("renderings", ",".join(renderings), "pairs", ",".join(k for k, _, _ in pairs))
     name = label(args.base, args.run, args.tag)
     out = root / args.name / "measure" / name
     if args.epochs and not args.run:
@@ -226,7 +260,7 @@ def main() -> None:
             if epoch != want:
                 raise SystemExit(f"{ckpt.name}: meta epoch {epoch}")
         with torch.no_grad():
-            lines = turn_lines(base.lm, records, epoch)
+            lines = turn_lines(base.lm, records, epoch, renderings, pairs)
         with (out / f"epoch-{epoch:02d}.jsonl").open("w") as f:
             f.writelines(json.dumps(x) + "\n" for x in lines)
         s = summarise(lines, epoch, args.base, args.run, slice_)
