@@ -157,6 +157,9 @@ def _fake_world(tmp_path, monkeypatch):
     )
     sha = tmp_path / "SHA"
     sha.write_text("abc\n")
+    vfile = tmp_path / "voices" / f"{D_VOICE}{job.VOICE_SUFFIX}"
+    vfile.parent.mkdir(parents=True)
+    vfile.write_text("x")
     (run1 / "stems.json").write_text(
         json.dumps(
             {
@@ -291,3 +294,16 @@ def test_extend_render_refuses_a_sha_mismatch_itself_and_a_changed_tape(
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
     with pytest.raises(ValueError, match="rebuilt tape differs"):
         job.extend_render(_args(), tmp_path)
+    # a render that failed part way leaves no stems.json: it never looks complete
+    assert not (tmp_path / "runs" / "render-2" / "render" / "stems.json").exists()
+
+
+def test_extend_render_refuses_a_missing_voice_file_before_any_tts(
+    tmp_path, monkeypatch
+) -> None:
+    from dual.jobs import render as job
+
+    _, calls = _fake_world(tmp_path, monkeypatch)
+    with pytest.raises(SystemExit, match="no voice file"):
+        job.extend_render(_args(add_voice=["D=vctk/p999_023.wav"]), tmp_path)
+    assert calls == []

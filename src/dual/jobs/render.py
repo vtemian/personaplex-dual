@@ -252,6 +252,9 @@ def extend_render(args: argparse.Namespace, data: pathlib.Path) -> None:
             f"this image has {sha}"
         )
     added = parse_voices(args.add_voice, stems["voices"])
+    for voice in added.values():
+        if not (data / "voices" / f"{voice}{VOICE_SUFFIX}").is_file():
+            raise SystemExit(f"no voice file for {voice} under {data / 'voices'}")
     rows_text = (src / "rows-train.jsonl").read_text()
     by_stem: dict[str, dict[str, dict[str, Any]]] = {}
     for r in map(json.loads, rows_text.splitlines()):
@@ -265,17 +268,7 @@ def extend_render(args: argparse.Namespace, data: pathlib.Path) -> None:
         held, train = held[: max(1, args.limit // 10)], train[: args.limit]
     out.mkdir(parents=True, exist_ok=True)
     (out / "rows-train.jsonl").write_text(rows_text)  # the same rows, the same batches
-    (out / "stems.json").write_text(
-        json.dumps(
-            {
-                **stems,
-                "voices": {**stems["voices"], **added},
-                "from": args.source,
-                "teacher_voice": args.teacher_voice,
-            },
-            indent=1,
-        )
-    )
+    (out / "stems.json").unlink(missing_ok=True)  # written last, once all checks pass
     eng = load_engines(data)
 
     def tape_of(stem: str) -> tuple[Any, Any]:
@@ -340,6 +333,19 @@ def extend_render(args: argparse.Namespace, data: pathlib.Path) -> None:
     labels = (*stems["voices"], *added)
     n_hold, hold_max, min_window = validate_holdout(held_out, tuple(labels))
     print(f"holdout rows {n_hold} max frames {hold_max} min answer window {min_window}")
+    (out / "stems.json").write_text(
+        json.dumps(
+            {
+                **stems,
+                "held": held,  # the stems this render covers (--limit truncates them)
+                "train": train,
+                "voices": {**stems["voices"], **added},
+                "from": args.source,
+                "teacher_voice": args.teacher_voice,
+            },
+            indent=1,
+        )
+    )
     print(
         f"extended {args.source} -> {args.name}: {len(train)} train, {len(held)} held"
     )
