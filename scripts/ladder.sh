@@ -5,7 +5,9 @@
 # --seed 1, -lr5e-6 --lr 5e-6, -lr1e-4 --lr 1e-4, -r64 --rank 64 --scaling 0.5, -r4
 # --rank 4 --scaling 8.0). LADDER=3: the B9 consistency pilot, one personaplex SLICE=1
 # EPOCHS=3 run, cons1-pp-l10 (--consistency 10). LADDER=4: the B12 lambda 3 pilot, the same run with
-# --consistency 3, named cons1-pp-l3. Each train is followed by its measure (no ARGS: measure reads the
+# --consistency 3, named cons1-pp-l3. LADDER=6: the B15 voice-D teacher, voiced1-pp-l3
+# (--consistency 3 --teacher voiced), its train and measure on render-2 (render-1 plus voice D).
+# (LADDER=5 was B14's scratchpad-only copy.) Each train is followed by its measure (no ARGS: measure reads the
 # setup from the checkpoint). An unknown LADDER, or a FROM outside the selected list, exits 2.
 # Runs are submitted one at a time, so a box hang loses at most one; FROM=<run name> skips
 # the runs before it in the selected ladder (a hung train is resumed by hand with ARGS=--resume, not by this).
@@ -116,6 +118,7 @@ wait_job() {
 # The run list: one word per run, "name,base,slice,epochs[,arg word...]" (the arg words are
 # joined by single spaces into the one ARGS=... make variable). Words, never a `while read`
 # loop on stdin: ssh in gate() would read the rest of the list.
+RENDER_RUN=render-1   # the render every train and measure of the ladder reads
 case "$LADDER" in
   1) RUNS=""
      for base in personaplex moshiko; do
@@ -128,7 +131,8 @@ ladder2-pp-r64,personaplex,1,3,--rank,64,--scaling,0.5
 ladder2-pp-r4,personaplex,1,3,--rank,4,--scaling,8.0" ;;
   3) RUNS="cons1-pp-l10,personaplex,1,3,--consistency,10" ;;
   4) RUNS="cons1-pp-l3,personaplex,1,3,--consistency,3" ;;
-  *) say "LADDER=$LADDER is not a ladder (1, 2, 3 or 4)"; exit 2 ;;
+  6) RUNS="voiced1-pp-l3,personaplex,1,3,--consistency,3,--teacher,voiced"; RENDER_RUN=render-2 ;;
+  *) say "LADDER=$LADDER is not a ladder (1, 2, 3, 4 or 6)"; exit 2 ;;
 esac
 
 if [ -n "$FROM" ]; then
@@ -150,13 +154,13 @@ run_one() {  # run_one <name,base,slice,epochs[,arg word...]>
   gate "$name"
   # ladder 1 passes no ARGS word at all; ladder 2 passes exactly one (quoted: one argv word)
   if [ -n "$extra" ]; then
-    submit "$name" train NAME="$name" BASE="$base" SLICE="$slice" RENDER=render-1 EPOCHS="$epochs" "$extra"
+    submit "$name" train NAME="$name" BASE="$base" SLICE="$slice" RENDER="$RENDER_RUN" EPOCHS="$epochs" "$extra"
   else
-    submit "$name" train NAME="$name" BASE="$base" SLICE="$slice" RENDER=render-1 EPOCHS="$epochs"
+    submit "$name" train NAME="$name" BASE="$base" SLICE="$slice" RENDER="$RENDER_RUN" EPOCHS="$epochs"
   fi
   wait_job "$JOB" || exit 1
   gate "$name (measure)"
-  submit "measure-$name" measure NAME="$name" BASE="$base" RUN="$name" RENDER=render-1
+  submit "measure-$name" measure NAME="$name" BASE="$base" RUN="$name" RENDER="$RENDER_RUN"
   MJOB=$JOB
   wait_job "$MJOB" || exit 1
 }

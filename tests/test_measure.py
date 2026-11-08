@@ -4,7 +4,16 @@ import pytest
 import torch
 
 from dual.constants import PAD
-from dual.jobs.measure import PAIRS, label, pair_fields, select_ckpts, summarise
+from dual.jobs.measure import (
+    PAIRS,
+    RENDERINGS,
+    extra_labels,
+    label,
+    pair_fields,
+    plan_pairs,
+    select_ckpts,
+    summarise,
+)
 from dual.kl import log_probs
 
 
@@ -86,3 +95,48 @@ def test_label_appends_run_then_tag():
     assert label("b", "r", None) == "b-r"
     assert label("b", None, "pos") == "b-pos"
     assert label("b", "r", "pos") == "b-r-pos"
+
+
+def test_render_1s_voices_add_nothing():
+    assert extra_labels({"A": "a", "B": "b", "C": "c"}) == ()
+    assert plan_pairs(()) == (RENDERINGS, PAIRS)
+
+
+def test_an_added_voice_adds_its_gap_and_two_floors():
+    assert extra_labels({"A": "a", "D2": "x", "B": "b", "C": "c", "D1": "y"}) == (
+        "D1",
+        "D2",
+    )
+    renderings, pairs = plan_pairs(("D",))
+    assert renderings == (*RENDERINGS, "D")
+    assert pairs[: len(PAIRS)] == PAIRS
+    assert pairs[len(PAIRS) :] == (
+        ("gap_D", "typed", "D"),
+        ("floor_D", "D", "A"),
+        ("floor_D_b", "D", "B"),
+    )
+
+
+def test_summarise_reports_the_added_pairs_and_leaves_the_bar_alone():
+    lines = [
+        line(1.0, 0.5, 0.4, 2.0),
+        line(3.0, 0.7, 0.6, 4.0),
+        line(2.0, 0.6, 0.5, 3.0),
+    ]
+    plain = summarise(lines, epoch=3, base="b", run="r", slice_=1)
+    for x, d in zip(lines, (0.2, 0.4, 0.3), strict=True):
+        x["gap_D"] = kl(d, d)
+        x["floor_D"] = kl(d / 2, d / 2)
+    s = summarise(lines, epoch=3, base="b", run="r", slice_=1)
+    assert s["content"] == plain["content"]
+    assert s["gap_D_median"] == pytest.approx(0.3)
+    assert s["floor_D_median"] == pytest.approx(0.15)
+    assert "gap_D_median" not in plain
+
+
+def test_pair_fields_takes_the_planned_pairs():
+    g = torch.Generator().manual_seed(0)
+    lps = {r: log_probs(torch.randn(4, 16, generator=g)) for r in (*RENDERINGS, "D")}
+    _, pairs = plan_pairs(("D",))
+    out = pair_fields(lps, [PAD, 3, 4, 5], pairs)
+    assert set(out["per_frame"]) == {k for k, _, _ in pairs}
