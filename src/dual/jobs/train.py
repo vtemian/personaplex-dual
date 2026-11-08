@@ -8,6 +8,7 @@ import math
 import pathlib
 import random
 import time
+from collections.abc import Mapping
 from typing import Any, cast
 
 import torch
@@ -24,6 +25,7 @@ from dual.model import (
     set_compile_mode,
 )
 
+TEACHERS = ("tape", "voiced")
 LR = 2e-5
 BETAS = (0.9, 0.95)
 CLIP = 1.0
@@ -57,9 +59,16 @@ def parse_args() -> argparse.Namespace:
         "--consistency",
         type=float,
         default=0.0,
-        help="weight of KL(typed answer || spoken answer); 0 = the baseline recipe",
+        help="weight of KL(typed answer || teacher answer); 0 = the baseline recipe",
     )
     p.add_argument("--consistency-dir", choices=DIRECTIONS, default="bar")
+    p.add_argument(
+        "--teacher",
+        choices=TEACHERS,
+        default="tape",
+        help="the consistency teacher row: the stem's all-tape row (B9), or the voiced "
+        "row of the typed row's kind from the render's rows-teacher.jsonl (B15)",
+    )
     p.add_argument(
         "--only-stem",
         default=None,
@@ -79,6 +88,8 @@ def parse_args() -> argparse.Namespace:
     args = p.parse_args()
     if args.consistency < 0:
         p.error(f"--consistency {args.consistency}: must be >= 0")
+    if args.teacher != "tape" and args.consistency == 0:
+        p.error(f"--teacher {args.teacher} needs --consistency > 0")
     return args
 
 
@@ -136,29 +147,33 @@ def losses(
 
 
 def build_teachers(
-    lm: Any, batch: list[dict[str, Any]], spoken: dict[str, dict[str, Any]]
+    lm: Any, batch: list[dict[str, Any]], teachers: Mapping[str, Mapping[str, Any]]
 ) -> dict[int, Teacher]:
     """For each typed row of the batch (by position), the frame indices of its answer
-    content frames and the model's own text log-probs at the same frames after the
-    spoken (all-tape) rendering of its stem: a no_grad forward with the current adapter,
-    one stem at a time, so a single spoken forward is alive at once."""
+    content frames and the model's own text log-probs at the same frames after its
+    teacher row (`teachers`: typed row id -> the stem's all-tape row, or the voiced row
+    of its kind): a no_grad forward with the current adapter, one teacher row at a time,
+    so a single teacher forward is alive at once."""
     from dual.consistency import answer_pairs, flat_indices
     from dual.model import codes_from_row, forward
 
     out: dict[int, Teacher] = {}
     have: tuple[str, Any] | None = None
+    typed_at = [i for i in range(len(batch)) if batch[i].get("typed_turns")]
+    order = sorted(
+        typed_at,
+        key=lambda j: (str(batch[j]["stem"]), str(teachers[batch[j]["id"]]["id"])),
+    )
     with torch.no_grad():
-        for i in sorted(range(len(batch)), key=lambda j: str(batch[j]["stem"])):
+        for i in order:
             row = batch[i]
-            if not row.get("typed_turns"):
-                continue
-            stem = row["stem"]
-            student, teacher = flat_indices(answer_pairs(row, spoken[stem]))
+            t_row = teachers[str(row["id"])]
+            student, teacher = flat_indices(answer_pairs(row, t_row))
             if not student:
                 continue
-            if have is None or have[0] != stem:
-                t = have = None  # drop the previous stem's logits first
-                have = (stem, forward(lm, codes_from_row(spoken[stem])))
+            if have is None or have[0] != t_row["id"]:
+                t = have = None  # drop the previous teacher's logits first
+                have = (str(t_row["id"]), forward(lm, codes_from_row(dict(t_row))))
             t = have[1]
             s_idx = torch.tensor(student, device=t.text_logits.device)
             t_idx = torch.tensor(teacher, device=t.text_logits.device)
@@ -206,16 +221,17 @@ def check_resume_lr(run_meta: dict[str, Any], lr: float) -> None:
 
 
 def check_resume_consistency(
-    run_meta: dict[str, Any], consistency: float, direction: str
+    run_meta: dict[str, Any], consistency: float, direction: str, teacher: str = "tape"
 ) -> None:
-    """--resume keeps the recipe: the same weight and direction. A checkpoint without
-    the keys predates B9 and ran without the term."""
+    """--resume keeps the recipe: the same weight, direction and teacher. A checkpoint
+    without the keys predates B9 (no term) or B15 (the tape teacher)."""
     had = float(run_meta.get("consistency", 0.0))
     had_dir = str(run_meta.get("consistency_dir", "bar"))
-    if (had, had_dir) != (consistency, direction):
+    had_teacher = str(run_meta.get("teacher", "tape"))
+    if (had, had_dir, had_teacher) != (consistency, direction, teacher):
         raise ValueError(
-            f"--resume: checkpoint ran at consistency {had} ({had_dir}), "
-            f"flags say {consistency} ({direction})"
+            f"--resume: checkpoint ran at consistency {had} ({had_dir}, teacher "
+            f"{had_teacher}), flags say {consistency} ({direction}, teacher {teacher})"
         )
 
 
@@ -273,7 +289,12 @@ def main() -> None:
     cap_gpu_memory(args.mem_cap_gib)
     from training.moshi.trunk_lora import unmoved
 
-    from dual.consistency import answer_pairs, flat_indices, spoken_by_stem
+    from dual.consistency import (
+        answer_pairs,
+        flat_indices,
+        tape_teachers,
+        voiced_teachers,
+    )
     from dual.model import (
         attach_lora,
         load_base,
@@ -292,18 +313,29 @@ def main() -> None:
         for r in map(json.loads, (render / "rows-train.jsonl").read_text().splitlines())
         if r["stem"] in keep
     ]
-    # the rows are json dicts; spoken_by_stem types them as read-only Mappings
-    spoken = cast(
-        dict[str, dict[str, Any]],
-        spoken_by_stem(rows) if args.consistency > 0 else {},
-    )
+    # the rows are json dicts; the helpers type them as read-only Mappings
+    teachers: dict[str, dict[str, Any]] = {}
+    voice = ""
+    if args.consistency > 0 and args.teacher == "voiced":
+        teacher_rows = [
+            r
+            for r in map(
+                json.loads, (render / "rows-teacher.jsonl").read_text().splitlines()
+            )
+            if r["stem"] in keep
+        ]
+        teachers = cast(dict[str, dict[str, Any]], voiced_teachers(rows, teacher_rows))
+        voice = str(teacher_rows[0]["voice"]) if teacher_rows else "?"
+    elif args.consistency > 0:
+        teachers = cast(dict[str, dict[str, Any]], tape_teachers(rows))
     rows = select_rows(rows, args.only_stem)
     typed_rows = [r for r in rows if r.get("typed_turns")]
-    consistency = f"consistency {args.consistency} ({args.consistency_dir}); "
+    how = args.consistency_dir + (f", teacher voiced {voice}" if voice else "")
+    consistency = f"consistency {args.consistency} ({how}); "
     consistency += f"typed rows {len(typed_rows)}"
     if args.consistency > 0:
-        # every typed row pairs with its spoken row now, not mid-epoch
-        pairs = [answer_pairs(r, spoken[r["stem"]]) for r in typed_rows]
+        # every typed row pairs with its teacher row now, not mid-epoch
+        pairs = [answer_pairs(r, teachers[r["id"]]) for r in typed_rows]
         content = sum(len(flat_indices(p)[0]) for p in pairs)
         consistency += (
             f", answer pairs {sum(map(len, pairs))}, content frames {content}"
@@ -340,7 +372,10 @@ def main() -> None:
         try:
             check_resume_lr(blob.get("run", {}), args.lr)
             check_resume_consistency(
-                blob.get("run", {}), args.consistency, args.consistency_dir
+                blob.get("run", {}),
+                args.consistency,
+                args.consistency_dir,
+                args.teacher,
             )
         except ValueError as e:
             raise SystemExit(str(e)) from e
@@ -364,11 +399,13 @@ def main() -> None:
                 plan = widest_first(plan)
             for i, batch in enumerate(plan):
                 t_step = time.monotonic()
-                teachers = (
-                    build_teachers(lm, batch, spoken) if args.consistency > 0 else None
+                targets = (
+                    build_teachers(lm, batch, teachers)
+                    if args.consistency > 0
+                    else None
                 )
                 t_teacher = time.monotonic() - t_step
-                text, audio, cons = losses(lm, batch, teachers, args.consistency_dir)
+                text, audio, cons = losses(lm, batch, targets, args.consistency_dir)
                 loss = TEXT_WEIGHT * text + AUDIO_WEIGHT * audio
                 if args.consistency > 0:
                     loss = loss + args.consistency * cons
@@ -388,7 +425,7 @@ def main() -> None:
                 norms.append(norm)
                 totals.append(vals[0])
                 conses.append(vals[4])
-                frames_t = sum(len(idx) for idx, _ in (teachers or {}).values())
+                frames_t = sum(len(idx) for idx, _ in (targets or {}).values())
                 run.step(
                     loss={
                         "total": vals[0],
@@ -447,6 +484,7 @@ def main() -> None:
                     "mem_cap_gib": args.mem_cap_gib,
                     "consistency": args.consistency,
                     "consistency_dir": args.consistency_dir,
+                    "teacher": args.teacher,
                     "only_stem": args.only_stem,
                 },
                 resume={"opt": opt.state_dict(), "rng": capture_rng(rng)},

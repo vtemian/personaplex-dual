@@ -8,10 +8,11 @@ import torch.nn.functional as F
 
 import dual.jobs.train
 import dual.model
+from dual.consistency import tape_teachers
 from dual.constants import SINE
 from dual.jobs.train import build_teachers, losses, main
 from dual.model import Forward
-from test_consistency import make_rows
+from test_consistency import make_rows, make_voiced
 
 V = 64
 
@@ -49,7 +50,7 @@ def cpu_model(monkeypatch):
 
 def test_teachers_cover_the_typed_row_only_at_its_answer_content_frames():
     typed, spoken = make_rows([1])
-    teachers = build_teachers(FakeLM(1.0), [spoken, typed], {"s": spoken})
+    teachers = build_teachers(FakeLM(1.0), [spoken, typed], {typed["id"]: spoken})
     assert list(teachers) == [1]
     idx, lp = teachers[1]
     assert idx.tolist() == [18, 19, 20, 21, 22]
@@ -60,7 +61,7 @@ def test_teachers_cover_the_typed_row_only_at_its_answer_content_frames():
 def test_zero_when_typed_and_spoken_agree():
     typed, spoken = make_rows([1, 3])
     lm = FakeLM(0.0)
-    teachers = build_teachers(lm, [typed], {"s": spoken})
+    teachers = build_teachers(lm, [typed], {typed["id"]: spoken})
     _, _, cons = losses(lm, [typed], teachers, "bar")
     assert float(cons.detach()) == 0.0
 
@@ -68,7 +69,7 @@ def test_zero_when_typed_and_spoken_agree():
 def test_positive_and_trainable_when_they_differ():
     typed, spoken = make_rows([1, 3])
     lm = FakeLM(1.0)
-    teachers = build_teachers(lm, [typed], {"s": spoken})
+    teachers = build_teachers(lm, [typed], {typed["id"]: spoken})
     _, _, cons = losses(lm, [typed], teachers, "bar")
     assert float(cons.detach()) > 0
     cons.backward()
@@ -80,7 +81,7 @@ def test_the_lm_losses_do_not_change_with_the_term():
     lm = FakeLM(1.0)
     base = losses(lm, [typed, spoken])
     with_term = losses(
-        lm, [typed, spoken], build_teachers(lm, [typed, spoken], {"s": spoken})
+        lm, [typed, spoken], build_teachers(lm, [typed, spoken], {typed["id"]: spoken})
     )
     assert torch.equal(base[0], with_term[0]) and torch.equal(base[1], with_term[1])
     assert float(base[2]) == 0.0
@@ -92,9 +93,47 @@ def test_teacher_frames_line_up_inside_a_padded_batch():
     long_typed, long_spoken = make_rows([1, 3], stem="t")
     lm = FakeLM(0.0)
     batch = [typed, long_typed]
-    teachers = build_teachers(lm, batch, {"s": spoken, "t": long_spoken})
+    teachers = build_teachers(
+        lm, batch, tape_teachers([typed, spoken, long_typed, long_spoken])
+    )
     _, _, cons = losses(lm, batch, teachers, "bar")
     assert float(cons.detach()) == 0.0
+
+
+def test_a_voiced_teacher_lines_up_after_a_longer_pupil_turn():
+    typed, _ = make_rows([1])
+    voiced = make_voiced([1])
+    teachers = build_teachers(FakeLM(1.0), [typed], {typed["id"]: voiced})
+    idx, lp = teachers[0]
+    assert idx.tolist() == [18, 19, 20, 21, 22]  # the typed row's own frames
+    assert lp.shape == (5, V)
+
+
+def test_zero_when_typed_and_voiced_agree_positive_when_they_differ():
+    typed, _ = make_rows([1, 3])
+    voiced = make_voiced([1, 3])
+    for c, positive in ((0.0, False), (1.0, True)):
+        lm = FakeLM(c)
+        _, _, cons = losses(
+            lm, [typed], build_teachers(lm, [typed], {typed["id"]: voiced}), "bar"
+        )
+        assert (float(cons.detach()) > 0) is positive
+
+
+def test_one_teacher_forward_per_distinct_teacher_row(monkeypatch):
+    typed, spoken = make_rows([1])
+    calls = []
+
+    def counting(lm, codes):
+        calls.append(codes.shape[-1])
+        return fake_forward(lm, codes)
+
+    monkeypatch.setattr(dual.model, "forward", counting)
+    other = dict(typed, id="s#complement", kind="complement")
+    build_teachers(
+        FakeLM(1.0), [typed, other], {typed["id"]: spoken, other["id"]: spoken}
+    )
+    assert len(calls) == 1  # both typed rows share the stem's tape row
 
 
 # main() end to end on CPU: the fake forward above, a fake base, the real sparks track
@@ -114,6 +153,15 @@ def job(tmp_path, monkeypatch):
     (render / "stems.json").write_text(json.dumps({"train": ["s", "t"]}))
     (render / "rows-train.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n"
+    )
+    vrows = [
+        make_voiced([1]),
+        make_voiced([], kind="complement"),
+        make_voiced([1, 3], stem="t"),
+        make_voiced([], stem="t", kind="complement"),
+    ]
+    (render / "rows-teacher.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in vrows) + "\n"
     )
     (render / "holdout.jsonl").write_text(json.dumps({"base": s_spoken}) + "\n")
     lm = FakeLM(1.0)
@@ -188,3 +236,21 @@ def test_main_smoke_past_the_last_step_still_writes_no_checkpoint(job, capsys):
     out = job.run("--consistency", "10", "--max-steps", "9", "--epochs", "2")
     assert "smoke: 8 steps" in capsys.readouterr().out
     assert list(out.glob("*.pt*")) == []
+
+
+def test_main_with_the_voiced_teacher_pairs_the_same_frames_and_saves_it(job, capsys):
+    out = job.run("--consistency", "3", "--teacher", "voiced", "--epochs", "1")
+    log = capsys.readouterr().out
+    assert "teacher voiced D" in log
+    assert "typed rows 2, answer pairs 3, content frames 13" in log  # = the tape's
+    blob = torch.load(out / "model-epoch-01.pt", weights_only=True)
+    assert blob["run"]["teacher"] == "voiced"
+    with pytest.raises(SystemExit, match="teacher"):
+        job.run("--consistency", "3", "--epochs", "2", "--resume")
+
+
+def test_main_with_the_tape_teacher_logs_as_before(job, capsys):
+    out = job.run("--consistency", "10", "--epochs", "1")
+    assert "teacher voiced" not in capsys.readouterr().out
+    blob = torch.load(out / "model-epoch-01.pt", weights_only=True)
+    assert blob["run"]["teacher"] == "tape"

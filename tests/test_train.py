@@ -224,3 +224,25 @@ def test_widest_first_orders_batches_by_padded_frames():
         80,
         30,
     ]
+
+
+def test_teacher_defaults_to_the_tape(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["train", "--name", "n", "--base", "b"])
+    assert parse_args().teacher == "tape"
+
+
+def test_teacher_voiced_is_parsed_and_needs_the_term(monkeypatch):
+    argv = ["train", "--name", "n", "--base", "b", "--teacher", "voiced"]
+    monkeypatch.setattr("sys.argv", [*argv, "--consistency", "3"])
+    assert parse_args().teacher == "voiced"
+    monkeypatch.setattr("sys.argv", argv)
+    with pytest.raises(SystemExit):
+        parse_args()
+
+
+def test_resume_refuses_another_teacher():
+    meta = {"consistency": 3.0, "consistency_dir": "bar"}
+    check_resume_consistency(meta, 3.0, "bar", "tape")  # predates B15: the tape
+    with pytest.raises(ValueError, match="teacher"):
+        check_resume_consistency(meta, 3.0, "bar", "voiced")
+    check_resume_consistency(meta | {"teacher": "voiced"}, 3.0, "bar", "voiced")

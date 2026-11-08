@@ -3,7 +3,8 @@ the holdout record with every pupil turn in every rendering."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import json
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from dual.constants import CONTEXT, PAD
@@ -98,6 +99,43 @@ def training_rows(
     return rows
 
 
+VOICED_KIND = "voiced"
+TYPED_KINDS = ("mask", "complement")
+# a teacher voice may not reuse a rendering the bar or the rows already name
+RESERVED_LABELS = ("tape", "typed", "spoken", "A", "B", "C")
+
+
+def voiced_rows(
+    stem: str,
+    spans: Sequence[TurnSpan],
+    base: Sequence[Segment],
+    voiced: Voiced,
+    label: str,
+    voice: str,
+) -> list[dict[str, Any]]:
+    """The consistency teacher rows of B15: for each typed kind (mask, complement),
+    the tape with exactly that kind's typed turns spoken by `voice` (rendering
+    `label`); every other pupil turn stays the tape. The same mask as training_rows."""
+    if label in RESERVED_LABELS:
+        raise ValueError(f"{stem}: teacher label {label!r} is reserved")
+    pupils = pupil_indices(spans)
+    bits = mask_bits(stem, len(pupils))
+    segs = {k: spoken_segment(voiced(spans[k].words, voice)) for k in pupils}
+    rows: list[dict[str, Any]] = []
+    for kind, want in zip(TYPED_KINDS, (1, 0), strict=True):
+        chosen = [k for k, b in zip(pupils, bits, strict=True) if b == want]
+        swaps = {k: (label, segs[k]) for k in chosen}
+        record = to_record(assemble(f"{stem}#{kind}-{label}", spans, base, swaps))
+        record["kind"] = VOICED_KIND
+        record["stem"] = stem
+        record["typed_turns"] = []
+        record["pairs_with"] = kind
+        record["voice"] = label
+        record["voiced_turns"] = chosen
+        rows.append(record)
+    return rows
+
+
 def _seg_record(seg: Segment) -> dict[str, Any]:
     return {
         "text": list(seg.text),
@@ -124,6 +162,45 @@ def holdout_record(
         renderings[str(k)] = per_turn
     tape = to_record(assemble(stem, spans, base, {}))
     return {"id": stem, "base": tape, "pupil_turns": pupils, "renderings": renderings}
+
+
+def add_rendering(
+    record: dict[str, Any],
+    spans: Sequence[TurnSpan],
+    voiced: Voiced,
+    voices: dict[str, str],  # new label -> voice name
+) -> dict[str, Any]:
+    """A copy of a holdout record with every pupil turn also in each new voice; the
+    renderings it had (typed, A, B, C) are kept as they are, never re-voiced."""
+    pupils = pupil_indices(spans)
+    if list(record["pupil_turns"]) != pupils:
+        raise ValueError(
+            f"{record['id']}: pupil turns {record['pupil_turns']}, spans say {pupils}"
+        )
+    renderings: dict[str, dict[str, Any]] = {}
+    for k in pupils:
+        per_turn = dict(record["renderings"][str(k)])
+        for label, voice in voices.items():
+            if label in per_turn or label in ("typed", "tape"):
+                raise ValueError(f"{record['id']}: turn {k} already has {label!r}")
+            seg = spoken_segment(voiced(spans[k].words, voice))
+            per_turn[label] = _seg_record(seg)
+        renderings[str(k)] = per_turn
+    return {**record, "renderings": renderings}
+
+
+TAPE_FIELDS = ("frames", "text", "own", "pupil", "scored", "spans")
+
+
+def check_same_tape(rebuilt: dict[str, Any], stored: Mapping[str, Any]) -> None:
+    """Refuses a tape row rebuilt from the data that differs from the one an earlier
+    render stored, in any frame field (compared after a JSON round trip)."""
+    again = json.loads(json.dumps({k: rebuilt[k] for k in TAPE_FIELDS}))
+    for k in TAPE_FIELDS:
+        if k not in stored or again[k] != stored[k]:
+            raise ValueError(
+                f"{stored.get('id', '?')}: the rebuilt tape differs in {k!r}"
+            )
 
 
 def segment_from(rec: dict[str, Any]) -> Segment:
