@@ -268,3 +268,16 @@ def test_check_same_tape_accepts_the_round_trip_and_refuses_a_change():
     stored["pupil"][0] = [0] * 8
     with pytest.raises(ValueError, match="pupil"):
         check_same_tape(rebuilt, stored)
+
+
+@pytest.mark.parametrize("label", ["tape", "typed", "spoken", "A", "B", "C"])
+def test_voiced_rows_refuse_a_reserved_label(label):
+    with pytest.raises(ValueError, match="reserved"):
+        voiced_rows("stem", two_ask_spans(), base(), voiced, label, "vx")
+
+
+def test_check_same_tape_refuses_a_missing_field():
+    rebuilt = training_rows("stem", two_ask_spans(), base(), typed)[2]
+    stored = {k: v for k, v in rebuilt.items() if k != "scored"}
+    with pytest.raises(ValueError, match="scored"):
+        check_same_tape(rebuilt, stored)

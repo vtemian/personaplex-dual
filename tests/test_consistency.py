@@ -230,3 +230,12 @@ def test_voiced_teachers_refuse_a_missing_row_two_rows_and_two_voices():
         voiced_teachers([s_typed], [s_spoken])
     with pytest.raises(ValueError, match="voices"):
         voiced_teachers([s_typed], [make_voiced([3])])
+
+
+def test_refuses_a_voiced_teacher_that_also_voices_an_untyped_turn():
+    typed, _ = make_rows([1])
+    bad = make_voiced([1, 3]) | {
+        "voiced_turns": [1]
+    }  # metadata says 1, spans voice 1 and 3
+    with pytest.raises(ValueError, match="pupil turn 3 is D, not tape"):
+        answer_pairs(typed, bad)
