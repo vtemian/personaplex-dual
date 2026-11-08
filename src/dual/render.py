@@ -101,6 +101,8 @@ def training_rows(
 
 VOICED_KIND = "voiced"
 TYPED_KINDS = ("mask", "complement")
+# a teacher voice may not reuse a rendering the bar or the rows already name
+RESERVED_LABELS = ("tape", "typed", "spoken", "A", "B", "C")
 
 
 def voiced_rows(
@@ -114,6 +116,8 @@ def voiced_rows(
     """The consistency teacher rows of B15: for each typed kind (mask, complement),
     the tape with exactly that kind's typed turns spoken by `voice` (rendering
     `label`); every other pupil turn stays the tape. The same mask as training_rows."""
+    if label in RESERVED_LABELS:
+        raise ValueError(f"{stem}: teacher label {label!r} is reserved")
     pupils = pupil_indices(spans)
     bits = mask_bits(stem, len(pupils))
     segs = {k: spoken_segment(voiced(spans[k].words, voice)) for k in pupils}
@@ -193,7 +197,7 @@ def check_same_tape(rebuilt: dict[str, Any], stored: Mapping[str, Any]) -> None:
     render stored, in any frame field (compared after a JSON round trip)."""
     again = json.loads(json.dumps({k: rebuilt[k] for k in TAPE_FIELDS}))
     for k in TAPE_FIELDS:
-        if again[k] != stored[k]:
+        if k not in stored or again[k] != stored[k]:
             raise ValueError(
                 f"{stored.get('id', '?')}: the rebuilt tape differs in {k!r}"
             )

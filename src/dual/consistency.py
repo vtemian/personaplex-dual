@@ -57,6 +57,15 @@ def answer_pairs(typed_row: Row, spoken_row: Row) -> list[AnswerPair]:
         raise ValueError(
             f"{typed_row['id']}: {len(t_spans)} spans, spoken row {len(s_spans)}"
         )
+    typed_set = set(typed_row["typed_turns"])
+    for j, span in enumerate(s_spans):  # the teacher's whole history, not its metadata
+        if span["party"] != "pupil":
+            continue
+        want = expect if j in typed_set else "tape"
+        if span["rendering"] != want:
+            raise ValueError(
+                f"{spoken_row['id']}: pupil turn {j} is {span['rendering']}, not {want}"
+            )
     out: list[AnswerPair] = []
     for k in sorted(typed_row["typed_turns"]):
         if not 0 <= k < len(t_spans):
