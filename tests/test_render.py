@@ -4,12 +4,15 @@ from dual.constants import GAP_FRAMES, PAD
 from dual.frames import tape_segment, typed_segment
 from dual.holdout import mask_bits
 from dual.render import (
+    add_rendering,
     assemble,
+    check_same_tape,
     holdout_record,
     holdout_row,
     pupil_indices,
     tape_segments,
     training_rows,
+    voiced_rows,
 )
 from dual.turns import TurnSpan
 
@@ -184,3 +187,84 @@ def test_holdout_row_refuses_a_teacher_index():
     rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
     with pytest.raises(ValueError, match="not a pupil"):
         holdout_row(rec, 1, "typed")
+
+
+def test_voiced_rows_voice_exactly_each_typed_rows_typed_turns():
+    rows = training_rows("stem", two_ask_spans(), base(), typed)
+    vrows = voiced_rows("stem", two_ask_spans(), base(), voiced, "D", "vdddd")
+    assert [v["pairs_with"] for v in vrows] == ["mask", "complement"]
+    assert [v["id"] for v in vrows] == ["stem#mask-D", "stem#complement-D"]
+    for v, r in zip(vrows, rows[:2], strict=True):
+        assert v["kind"] == "voiced" and v["stem"] == "stem" and v["voice"] == "D"
+        assert v["typed_turns"] == []
+        assert v["voiced_turns"] == r["typed_turns"]
+        for k, s in enumerate(v["spans"]):
+            if k in v["voiced_turns"]:
+                assert s["rendering"] == "D"
+            else:
+                assert s["rendering"] == "tape"
+
+
+def test_voiced_turns_have_the_tts_length_and_answers_keep_the_tape():
+    spoken = training_rows("stem", two_ask_spans(), base(), typed)[2]
+    for v in voiced_rows("stem", two_ask_spans(), base(), voiced, "D", "vdddd"):
+        for k, (s, t) in enumerate(zip(v["spans"], spoken["spans"], strict=True)):
+            if k in v["voiced_turns"]:
+                words = two_ask_spans()[k].words
+                assert s["end"] - s["start"] == 2 * len(words) + GAP_FRAMES
+                assert list(v["pupil"][s["start"]]) == [5] * 8  # len("vdddd")
+            if s["party"] == "teacher":
+                assert (
+                    v["text"][s["start"] : s["end"]]
+                    == spoken["text"][t["start"] : t["end"]]
+                )
+                assert (
+                    v["own"][s["start"] : s["end"]]
+                    == spoken["own"][t["start"] : t["end"]]
+                )
+
+
+def test_voiced_rows_refuse_past_the_context():
+    def long_voiced(words, voice):
+        return [[1] * 8] * 4000
+
+    with pytest.raises(ValueError, match="over moshi"):
+        voiced_rows("stem", two_ask_spans(), base(), long_voiced, "D", "v")
+
+
+def test_add_rendering_adds_a_label_to_every_turn_and_keeps_the_rest():
+    rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
+    out = add_rendering(rec, two_ask_spans(), voiced, {"D": "vdddd"})
+    assert out["base"] == rec["base"] and out["pupil_turns"] == rec["pupil_turns"]
+    for k in ("0", "2"):
+        assert set(out["renderings"][k]) == {"typed", "A", "B", "C", "D"}
+        for lab in ("typed", "A", "B", "C"):
+            assert out["renderings"][k][lab] == rec["renderings"][k][lab]
+        assert out["renderings"][k]["D"]["pupil"][0] == [5] * 8
+    assert set(rec["renderings"]["0"]) == {"typed", "A", "B", "C"}  # input untouched
+    row, _ = holdout_row(out, 2, "D")
+    assert row["spans"][2]["rendering"] == "D"
+
+
+@pytest.mark.parametrize("label", ["A", "typed", "tape"])
+def test_add_rendering_refuses_a_label_that_exists(label):
+    rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
+    with pytest.raises(ValueError, match="already"):
+        add_rendering(rec, two_ask_spans(), voiced, {label: "vx"})
+
+
+def test_add_rendering_refuses_other_spans():
+    rec = holdout_record("stem", two_ask_spans(), base(), typed, voiced, VOICES)
+    with pytest.raises(ValueError, match="pupil turns"):
+        add_rendering(rec, two_ask_spans()[:2], voiced, {"D": "vx"})
+
+
+def test_check_same_tape_accepts_the_round_trip_and_refuses_a_change():
+    import json
+
+    rebuilt = training_rows("stem", two_ask_spans(), base(), typed)[2]
+    stored = json.loads(json.dumps(rebuilt))
+    check_same_tape(rebuilt, stored)
+    stored["pupil"][0] = [0] * 8
+    with pytest.raises(ValueError, match="pupil"):
+        check_same_tape(rebuilt, stored)

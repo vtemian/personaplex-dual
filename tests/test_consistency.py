@@ -6,9 +6,11 @@ from dual.consistency import (
     flat_indices,
     longest_stem,
     spoken_by_stem,
+    tape_teachers,
+    voiced_teachers,
 )
 from dual.constants import PAD
-from dual.frames import tape_segment, to_record, typed_segment
+from dual.frames import spoken_segment, tape_segment, to_record, typed_segment
 from dual.render import assemble
 from dual.turns import TurnSpan
 
@@ -25,19 +27,44 @@ PARTS = (
 TYPED = typed_segment([11, 12, 13])  # 3 tokens + 6 gap frames = 9 frames
 
 
-def make_rows(typed_turns, parts=PARTS, stem="s"):
+VOICED = spoken_segment([[5] * 8] * 4)  # 4 TTS frames + 6 gap = 10 frames
+
+
+def tape_parts(parts=PARTS):
     spans, base, start = [], [], 0
     for i, (party, text) in enumerate(parts):
         n = len(text)
         spans.append(TurnSpan(i, party, (f"w{i}",), start, start, start + n))
         base.append(tape_segment(text, OWN * n, PUP * n, scored=party == "teacher"))
         start += n
+    return spans, base
+
+
+def make_rows(typed_turns, parts=PARTS, stem="s"):
+    spans, base = tape_parts(parts)
     swaps = {k: ("typed", TYPED) for k in typed_turns}
     typed = to_record(assemble(f"{stem}#mask", spans, base, swaps))
     typed |= {"kind": "mask", "stem": stem, "typed_turns": list(typed_turns)}
     spoken = to_record(assemble(f"{stem}#spoken", spans, base, {}))
     spoken |= {"kind": "spoken", "stem": stem, "typed_turns": []}
     return typed, spoken
+
+
+def make_voiced(
+    voiced_turns, parts=PARTS, stem="s", kind="mask", label="D", seg=VOICED
+):
+    spans, base = tape_parts(parts)
+    swaps = {k: (label, seg) for k in voiced_turns}
+    row = to_record(assemble(f"{stem}#{kind}-{label}", spans, base, swaps))
+    row |= {
+        "kind": "voiced",
+        "stem": stem,
+        "typed_turns": [],
+        "pairs_with": kind,
+        "voice": label,
+        "voiced_turns": list(voiced_turns),
+    }
+    return row
 
 
 def test_one_typed_turn_pairs_its_answer_by_offset():
@@ -140,3 +167,66 @@ def test_longest_stem_is_the_stem_of_the_longest_row_first_by_name_on_ties():
     assert longest_stem(rows) == "a"
     with pytest.raises(ValueError):
         longest_stem([])
+
+
+def test_a_voiced_teacher_pairs_by_offset_after_a_longer_pupil_turn():
+    typed, _ = make_rows([1])
+    voiced = make_voiced([1])  # turn 1: 10 frames (tape 5, typed 9)
+    assert answer_pairs(typed, voiced) == [
+        AnswerPair(turn=1, typed=(15, 23), spoken=(16, 24), content=(3, 4, 5, 6, 7))
+    ]
+
+
+def test_a_voiced_teacher_pairs_like_the_tape_teacher_frame_for_frame():
+    typed, spoken = make_rows([1, 3])
+    voiced = make_voiced([1, 3])
+    by_tape, by_voice = answer_pairs(typed, spoken), answer_pairs(typed, voiced)
+    assert [(p.turn, p.content) for p in by_tape] == [
+        (p.turn, p.content) for p in by_voice
+    ]
+    s_idx, t_idx = flat_indices(by_voice)
+    assert [typed["text"][i] for i in s_idx] == [voiced["text"][i] for i in t_idx]
+
+
+def test_refuses_a_voiced_teacher_of_other_turns():
+    typed, _ = make_rows([1])
+    with pytest.raises(ValueError, match="voices"):
+        answer_pairs(typed, make_voiced([3]))
+
+
+def test_refuses_a_voiced_teacher_whose_turn_is_the_tape():
+    typed, _ = make_rows([1])
+    bad = make_voiced([1]) | {"voice": "E"}  # spans say D
+    with pytest.raises(ValueError, match="not E"):
+        answer_pairs(typed, bad)
+
+
+def test_tape_teachers_map_each_typed_row_to_its_stems_spoken_row():
+    s_typed, s_spoken = make_rows([1])
+    t_typed, t_spoken = make_rows([1, 3], stem="t")
+    out = tape_teachers([s_typed, s_spoken, t_typed, t_spoken])
+    assert out == {"s#mask": s_spoken, "t#mask": t_spoken}
+
+
+def test_voiced_teachers_map_each_typed_row_to_its_kinds_voiced_row():
+    s_typed, s_spoken = make_rows([1])
+    v = make_voiced([1])
+    other = make_voiced([3], kind="complement")
+    assert voiced_teachers([s_typed, s_spoken], [v, other]) == {"s#mask": v}
+
+
+def test_voiced_teachers_refuse_a_missing_row_two_rows_and_two_voices():
+    s_typed, s_spoken = make_rows([1])
+    with pytest.raises(ValueError, match="no voiced row"):
+        voiced_teachers([s_typed, s_spoken], [make_voiced([3], kind="complement")])
+    with pytest.raises(ValueError, match="two voiced rows"):
+        voiced_teachers([s_typed], [make_voiced([1]), make_voiced([1])])
+    with pytest.raises(ValueError, match="one teacher voice"):
+        voiced_teachers(
+            [s_typed],
+            [make_voiced([1]), make_voiced([3], kind="complement", label="E")],
+        )
+    with pytest.raises(ValueError, match="not a voiced row"):
+        voiced_teachers([s_typed], [s_spoken])
+    with pytest.raises(ValueError, match="voices"):
+        voiced_teachers([s_typed], [make_voiced([3])])

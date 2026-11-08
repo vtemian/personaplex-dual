@@ -6,6 +6,10 @@ tutor's answer is span k+1 in both rows: the same text, the same length, shifted
 difference in pupil-turn lengths before it. The consistency loss compares the two text
 distributions frame by frame on the answer's content frames (target text not PAD), the
 frames the content bar scores.
+
+B15: the teacher may instead be a `voiced` row, the same stem with exactly the typed
+row's typed turns in a TTS voice (`voice` label) and the rest the tape; it pairs with
+the typed row of its `pairs_with` kind.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from typing import Any
 from dual.constants import PAD
 
 Row = Mapping[str, Any]
+TEACHER_KINDS = ("spoken", "voiced")
 
 
 @dataclass(frozen=True)
@@ -28,13 +33,25 @@ class AnswerPair:
 
 
 def answer_pairs(typed_row: Row, spoken_row: Row) -> list[AnswerPair]:
-    """One pair per typed pupil turn of `typed_row` that has a tutor answer after it."""
+    """One pair per typed pupil turn of `typed_row` that has a tutor answer after it.
+    `spoken_row` is the teacher: the stem's all-tape row, or its voiced row (B15)."""
     if typed_row["stem"] != spoken_row["stem"]:
         raise ValueError(
             f"stem {typed_row['stem']!r} paired with {spoken_row['stem']!r}"
         )
-    if spoken_row.get("kind") != "spoken":
-        raise ValueError(f"{spoken_row['id']}: the teacher row is not the spoken row")
+    kind = spoken_row.get("kind")
+    if kind not in TEACHER_KINDS:
+        raise ValueError(
+            f"{spoken_row['id']}: the teacher row is not a spoken or voiced row"
+        )
+    expect = "tape"
+    if kind == "voiced":
+        expect = str(spoken_row["voice"])
+        if sorted(spoken_row["voiced_turns"]) != sorted(typed_row["typed_turns"]):
+            raise ValueError(
+                f"{spoken_row['id']} voices turns {spoken_row['voiced_turns']}, "
+                f"{typed_row['id']} types {typed_row['typed_turns']}"
+            )
     t_spans, s_spans = typed_row["spans"], spoken_row["spans"]
     if len(t_spans) != len(s_spans):
         raise ValueError(
@@ -46,8 +63,11 @@ def answer_pairs(typed_row: Row, spoken_row: Row) -> list[AnswerPair]:
             raise ValueError(f"{typed_row['id']}: typed turn {k} out of range")
         if t_spans[k]["party"] != "pupil" or t_spans[k]["rendering"] != "typed":
             raise ValueError(f"{typed_row['id']}: turn {k} is not typed in this row")
-        if s_spans[k]["rendering"] != "tape":
-            raise ValueError(f"{spoken_row['id']}: turn {k} is not the tape")
+        if s_spans[k]["rendering"] != expect:
+            raise ValueError(
+                f"{spoken_row['id']}: turn {k} is {s_spans[k]['rendering']}, "
+                f"not {expect}"
+            )
         if k + 1 >= len(t_spans):
             continue  # the dialogue ends on this turn: no answer to compare
         ta, sa = t_spans[k + 1], s_spans[k + 1]
@@ -91,6 +111,47 @@ def spoken_by_stem(rows: Sequence[Row]) -> dict[str, Row]:
     )
     if lacking:
         raise ValueError(f"no spoken row for {lacking[:3]}")
+    return out
+
+
+def tape_teachers(rows: Sequence[Row]) -> dict[str, Row]:
+    """Typed row id -> its stem's spoken (all-tape) row: the B9 teacher."""
+    spoken = spoken_by_stem(rows)
+    return {str(r["id"]): spoken[r["stem"]] for r in rows if r.get("typed_turns")}
+
+
+def voiced_teachers(rows: Sequence[Row], teacher_rows: Sequence[Row]) -> dict[str, Row]:
+    """Typed row id -> the voiced row of its stem and kind (B15). Refuses a typed row
+    without one, two for one (stem, kind), rows in more than one voice, and a voiced
+    row that voices other turns than its typed row types."""
+    by_key: dict[tuple[str, str], Row] = {}
+    for t in teacher_rows:
+        if t.get("kind") != "voiced":
+            raise ValueError(f"{t['id']}: not a voiced row")
+        key = (str(t["stem"]), str(t["pairs_with"]))
+        if key in by_key:
+            raise ValueError(f"{key[0]}: two voiced rows for {key[1]}")
+        by_key[key] = t
+    voices = sorted({str(t["voice"]) for t in teacher_rows})
+    if len(voices) > 1:
+        raise ValueError(f"voiced rows in {voices}: one teacher voice only")
+    out: dict[str, Row] = {}
+    lacking: list[str] = []
+    for r in rows:
+        if not r.get("typed_turns"):
+            continue
+        v = by_key.get((str(r["stem"]), str(r["kind"])))
+        if v is None:
+            lacking.append(str(r["id"]))
+            continue
+        if sorted(v["voiced_turns"]) != sorted(r["typed_turns"]):
+            raise ValueError(
+                f"{v['id']} voices {v['voiced_turns']}, {r['id']} types "
+                f"{r['typed_turns']}"
+            )
+        out[str(r["id"])] = v
+    if lacking:
+        raise ValueError(f"no voiced row for {lacking[:3]}")
     return out
 
 
