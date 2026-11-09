@@ -26,16 +26,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import contextlib
 import json
 import pathlib
 import queue
 import signal
 import socket
-import threading
 import time
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 import numpy as np
 import torch
@@ -72,6 +73,7 @@ from dual.turns import typed_tokens
 DEP_Q = 8  # the probe's and the side-by-side's: moshi's 8 depformer steps
 FREE_FRAMES = 150  # replay: frames moshi may answer in
 AFTER_END = 12  # replay: frames kept after </s>
+MAX_TYPED_WORDS = 60  # a typed turn longer than this is refused (D4's cap)
 WARMUP_FRAMES = 4  # captures moshi's CUDA graphs
 FULL_SCALE = 32767.0
 ZERO_FRAME = b"\x00" * FRAME_BYTES  # digital silence into the mic path
@@ -438,7 +440,13 @@ class Session:
             for frame in self.buffer.push(payload):
                 self.inbox.put(("hear", frame))
         elif kind == TYPED:
-            self.inbox.put(("type", payload.decode("utf-8")))
+            text = payload.decode("utf-8")
+            n = len(text.split())
+            if n == 0 or n > MAX_TYPED_WORDS:
+                why = "blank" if n == 0 else f"{n} words, over {MAX_TYPED_WORDS}"
+                print(f"typed text refused ({why})", flush=True)
+                return
+            self.inbox.put(("type", text))
         else:
             raise ValueError(f"the page sent a server-only kind {kind}")
 
@@ -465,8 +473,13 @@ class Session:
             self.error = repr(e)
             print("session error:", self.error, flush=True)
         finally:
-            self.engine.close()
-            self.post(None)
+            try:
+                self.engine.close()
+            except Exception as e:  # the outbox must still end, or the socket hangs
+                self.error = self.error or repr(e)
+                print("session close error:", repr(e), flush=True)
+            finally:
+                self.post(None)
 
     def queued_hears(self) -> int:
         """Mic frames waiting, not counting a typed turn or the stop."""
@@ -554,15 +567,21 @@ class Session:
 
 
 async def pump(session: Session, ws: web.WebSocketResponse) -> None:
-    """Sends what the worker posts; a None closes the socket (the session ended)."""
+    """Sends what the worker posts; a None closes the socket (the session ended). A
+    client that dropped mid-send stops the sending, not the draining."""
+    dropped = False
     while True:
         message = await session.outbox.get()
         if message is None:
             if not ws.closed:
-                await ws.close()
+                with contextlib.suppress(ConnectionError):
+                    await ws.close()
             return
-        if not ws.closed:
-            await ws.send_bytes(message)
+        if not ws.closed and not dropped:
+            try:
+                await ws.send_bytes(message)
+            except ConnectionError:
+                dropped = True  # keep draining to the sentinel, send no more
 
 
 async def page(request: web.Request) -> web.StreamResponse:
@@ -585,7 +604,7 @@ async def health(request: web.Request) -> web.Response:
 async def finish(
     s: dict[str, Any],
     session: Session,
-    worker: threading.Thread,
+    worker: asyncio.Future[None],
     sender: asyncio.Task[None],
 ) -> None:
     """Ends a session: stops the worker, saves the record, frees the engine. A task of
@@ -593,16 +612,34 @@ async def finish(
     must still be written then. Releases the session lock last."""
     try:
         session.stop()
-        await asyncio.to_thread(worker.join, 60)
-        await sender
-        session.save()
+        # No timeout: the worker always reaches the stop command, and the engine is
+        # not ours to release while it may still hold it open.
+        await asyncio.gather(worker, return_exceptions=True)
+        await asyncio.gather(sender, return_exceptions=True)
+        try:
+            await asyncio.to_thread(session.save)
+        except Exception as e:
+            print("session save failed:", repr(e), flush=True)
         s["sessions"] += 1
     finally:
         s["lock"].release()
 
 
+def same_origin(request: web.Request) -> bool:
+    """No Origin (not a browser) passes; else its host must be localhost, 127.0.0.1 or
+    the host the request was addressed to."""
+    origin = request.headers.get("Origin")
+    if origin is None:
+        return True
+    host = (urlsplit(origin).hostname or "").lower()
+    own = (urlsplit("//" + request.host).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", own) and host != ""
+
+
 async def websocket(request: web.Request) -> web.StreamResponse:
     s = request.app[STATE]
+    if not same_origin(request):
+        raise web.HTTPForbidden(text="cross-origin websocket refused")
     if s["engine"] is None:
         raise web.HTTPServiceUnavailable(text="the model is still loading")
     if s["lock"].locked():
@@ -613,8 +650,8 @@ async def websocket(request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse(max_msg_size=4 * 2**20)
         await ws.prepare(request)
         session = Session(s["engine"], s["spm"], s["out"], asyncio.get_running_loop())
-        worker = threading.Thread(target=session.run, name="engine", daemon=True)
-        worker.start()
+        loop = asyncio.get_running_loop()
+        worker = loop.run_in_executor(s["executor"], session.run)
         sender = asyncio.create_task(pump(session, ws))
         try:
             async for msg in ws:
@@ -652,6 +689,11 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
         "lock": asyncio.Lock(),
         "sessions": 0,
         "finishing": set(),
+        # ONE long-lived thread: moshi captures CUDA graphs per process on first use,
+        # and capture and replay must share a thread.
+        "executor": concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="engine"
+        ),
     }
 
 
@@ -666,13 +708,14 @@ async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
         f"page http://{ip}:{args.port}/ health http://{ip}:{args.port}/health",
         flush=True,
     )
-    base, mimi = await asyncio.to_thread(load_model, args)
+    loop = asyncio.get_running_loop()
+    executor = state["executor"]
+    base, mimi = await loop.run_in_executor(executor, load_model, args)
     engine = Engine(base, mimi, "cuda", args.temp, args.temp_text)
-    await asyncio.to_thread(engine.warmup)
+    await loop.run_in_executor(executor, engine.warmup)
     state["engine"], state["spm"] = engine, base.spm
     print(f"engine: ready; stops after {args.max_minutes:g} min or SIGTERM", flush=True)
     stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
     with contextlib.suppress(TimeoutError):
@@ -684,6 +727,7 @@ async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
     await runner.cleanup()  # closes open websockets; their sessions finish as tasks
     if state["finishing"]:
         await asyncio.gather(*state["finishing"])
+    executor.shutdown(wait=True)
     print(f"engine: done, {state['sessions']} session(s) recorded", flush=True)
 
 

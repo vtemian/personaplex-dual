@@ -328,3 +328,99 @@ def test_http_health_page_and_a_websocket_session(tmp_path):
         assert len(dirs) == 1 and (dirs[0] / "meta.json").exists()
 
     asyncio.run(go())
+
+
+def test_websocket_refuses_a_cross_site_origin(tmp_path):
+    from aiohttp import WSServerHandshakeError
+
+    async def go():
+        state = new_state("engine-origin", tmp_path)
+        state["engine"], state["spm"] = FakeEngine(), FakeSpm()
+        async with TestClient(TestServer(make_app(state))) as client:
+            with pytest.raises(WSServerHandshakeError) as err:
+                await client.ws_connect(
+                    "/ws", headers={"Origin": "http://evil.example"}
+                )
+            assert err.value.status == 403
+            assert state["lock"].locked() is False
+            port = client.port
+            for origin in (
+                f"http://localhost:{port}",
+                f"http://127.0.0.1:{port}",
+                f"http://{client.host}:{port}",
+            ):
+                async with client.ws_connect("/ws", headers={"Origin": origin}) as ws:
+                    assert unpack(await ws.receive_bytes())[0] == READY
+                await asyncio.sleep(0.3)
+            async with client.ws_connect("/ws") as ws:  # no Origin: not a browser
+                assert unpack(await ws.receive_bytes())[0] == READY
+
+    asyncio.run(go())
+
+
+def test_pump_survives_a_dropped_client():
+    from dual.jobs.engine import pump
+
+    class DeadWs:
+        closed = False
+
+        def __init__(self):
+            self.sent = 0
+
+        async def send_bytes(self, message):
+            self.sent += 1
+            raise ConnectionResetError("client gone")
+
+        async def close(self):
+            raise ConnectionResetError("client gone")
+
+    async def go():
+        session = types.SimpleNamespace(outbox=asyncio.Queue())
+        for m in (b"a", b"b", b"c", None):
+            session.outbox.put_nowait(m)
+        ws = DeadWs()
+        await pump(session, ws)
+        assert ws.sent == 1  # nothing sent after the first failure
+        assert session.outbox.empty()
+
+    asyncio.run(go())
+
+
+def test_session_posts_the_sentinel_when_close_raises(tmp_path):
+    class BadClose(FakeEngine):
+        def close(self):
+            raise RuntimeError("close failed")
+
+    loop = asyncio.new_event_loop()
+    try:
+        s = Session(BadClose(), FakeSpm(), tmp_path, loop)
+        s.stop()
+        s.run()
+        assert _drain(loop, s.outbox)[-1] is None
+        assert s.error is not None and "close failed" in s.error
+    finally:
+        loop.close()
+
+
+def test_session_refuses_blank_and_oversized_typed_text(tmp_path, capsys):
+    from dual.jobs.engine import MAX_TYPED_WORDS
+
+    assert MAX_TYPED_WORDS == 60
+    loop = asyncio.new_event_loop()
+    try:
+        eng = FakeEngine()
+        s = Session(eng, FakeSpm(), tmp_path, loop)
+        s.feed(pack(TYPED, b"   \n\t "))
+        s.feed(pack(TYPED, " ".join(["word"] * 61).encode()))
+        s.feed(pack(AUDIO, b"\x01\x00" * 1920))  # still heard afterwards
+        s.stop()
+        s.run()
+        assert eng.typed == [] and eng.counters.heard == 1 and s.error is None
+        assert "refused" in capsys.readouterr().out
+        s2 = Session(FakeEngine(), FakeSpm(), tmp_path, loop)
+        s2.feed(pack(TYPED, " ".join(["word"] * 60).encode()))  # at the cap: fine
+        s2.stop()
+        s2.run()
+        assert len(s2.engine.typed) == 1
+    finally:
+        loop.close()
