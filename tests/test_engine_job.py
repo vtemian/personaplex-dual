@@ -7,6 +7,7 @@ import types
 
 import pytest
 import torch
+from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
 from dual.constants import GAP_FRAMES, PAD, SILENCE, SINE
@@ -30,6 +31,7 @@ from dual.jobs.engine import (
     new_state,
     parse_args,
     pcm_to_tensor,
+    shutdown,
     tensor_to_pcm,
     wav_of,
 )
@@ -424,3 +426,61 @@ def test_session_refuses_blank_and_oversized_typed_text(tmp_path, capsys):
         assert len(s2.engine.typed) == 1
     finally:
         loop.close()
+
+
+class _StubRunner:
+    def __init__(self):
+        self.cleaned = 0
+
+    async def cleanup(self):
+        self.cleaned += 1
+
+
+def test_shutdown_saves_the_open_session_and_closes_the_socket(tmp_path):
+    async def go():
+        state = new_state("engine-test", tmp_path)
+        state["engine"], state["spm"] = FakeEngine(), FakeSpm()
+        runner = _StubRunner()
+        async with (
+            TestClient(TestServer(make_app(state))) as client,
+            client.ws_connect("/ws") as ws,
+        ):
+            assert unpack(await ws.receive_bytes())[0] == READY
+            await ws.send_bytes(pack(AUDIO, b"\x00" * FRAME_BYTES * 3))
+            assert len(state["open"]) == 1
+            await shutdown(state, runner)
+            assert runner.cleaned == 1
+            assert state["sessions"] == 1 and not state["open"]
+            dirs = [p for p in tmp_path.iterdir() if p.is_dir()]
+            assert len(dirs) == 1 and (dirs[0] / "meta.json").exists()
+            while True:  # the client sees the socket close
+                msg = await asyncio.wait_for(ws.receive(), 5)
+                if msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED):
+                    break
+
+    asyncio.run(go())
+
+
+def test_shutdown_with_no_session_just_cleans_up(tmp_path):
+    async def go():
+        state = new_state("engine-test", tmp_path)
+        runner = _StubRunner()
+        await shutdown(state, runner)
+        assert runner.cleaned == 1 and state["sessions"] == 0
+
+    asyncio.run(go())
+
+
+def test_engine_close_clears_its_state_when_the_stack_raises(monkeypatch):
+    e = _engine(monkeypatch)
+
+    class Boom:
+        def close(self):
+            raise RuntimeError("exit failed")
+
+    e._stack = Boom()
+    with pytest.raises(RuntimeError, match="exit failed"):
+        e.close()
+    assert not e.is_open
+    e.open()  # not stuck "already open"
+    e.close()

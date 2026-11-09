@@ -74,7 +74,7 @@ DEP_Q = 8  # the probe's and the side-by-side's: moshi's 8 depformer steps
 FREE_FRAMES = 150  # replay: frames moshi may answer in
 AFTER_END = 12  # replay: frames kept after </s>
 MAX_TYPED_WORDS = 60  # a typed turn longer than this is refused (D4's cap)
-WARMUP_FRAMES = 4  # captures moshi's CUDA graphs
+WARMUP_FRAMES = 4  # pays one-time compile/allocation costs, checks the path runs
 FULL_SCALE = 32767.0
 ZERO_FRAME = b"\x00" * FRAME_BYTES  # digital silence into the mic path
 CLIENT = pathlib.Path(__file__).resolve().parents[1] / "client.html"
@@ -98,7 +98,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--temp", type=float, default=0.0, help="audio temperature")
     p.add_argument("--temp-text", type=float, default=0.0)
     p.add_argument(
-        "--eager", action="store_true", help="NO_TORCH_COMPILE=1: no CUDA graphs"
+        "--eager",
+        action="store_true",
+        help="NO_TORCH_COMPILE=1 (moshi's torch.compile off)",
     )
     p.add_argument("--mem-cap-gib", type=float, default=MEM_CAP_GIB)
     args = p.parse_args(argv)
@@ -228,9 +230,9 @@ class Engine:
         self.last_text = PAD
 
     def close(self) -> None:
-        if self._stack is not None:
-            self._stack.close()
-            self._stack = None
+        stack, self._stack = self._stack, None  # cleared even if close() raises
+        if stack is not None:
+            stack.close()
 
     def step_codes(
         self,
@@ -285,7 +287,8 @@ class Engine:
         return ids
 
     def warmup(self) -> None:
-        """A throwaway session that captures moshi's CUDA graphs and Mimi's."""
+        """A throwaway session that pays the one-time compile and allocation costs
+        (moshi, Mimi) and checks the path runs."""
         self.open()
         try:
             for _ in range(WARMUP_FRAMES):
@@ -622,6 +625,7 @@ async def finish(
             print("session save failed:", repr(e), flush=True)
         s["sessions"] += 1
     finally:
+        s["open"].discard(session)
         s["lock"].release()
 
 
@@ -650,6 +654,7 @@ async def websocket(request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse(max_msg_size=4 * 2**20)
         await ws.prepare(request)
         session = Session(s["engine"], s["spm"], s["out"], asyncio.get_running_loop())
+        s["open"].add(session)
         loop = asyncio.get_running_loop()
         worker = loop.run_in_executor(s["executor"], session.run)
         sender = asyncio.create_task(pump(session, ws))
@@ -689,6 +694,7 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
         "lock": asyncio.Lock(),
         "sessions": 0,
         "finishing": set(),
+        "open": set(),  # sessions whose worker has started and not yet finished
         # ONE long-lived thread: moshi captures CUDA graphs per process on first use,
         # and capture and replay must share a thread.
         "executor": concurrent.futures.ThreadPoolExecutor(
@@ -697,36 +703,60 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
     }
 
 
+async def shutdown(state: dict[str, Any], runner: Any) -> None:
+    """Stops and saves every open session, then tears the server down. Order matters:
+    runner.cleanup() does not close websockets, it waits for their handlers, so the
+    sessions are stopped first (the worker posts the sentinel, pump closes the socket,
+    the handler ends, finish saves) and only then is the runner cleaned up."""
+    for session in list(state["open"]):
+        session.stop()
+    while state["open"] or state["finishing"]:
+        if state["finishing"]:
+            await asyncio.gather(*list(state["finishing"]), return_exceptions=True)
+        else:
+            await asyncio.sleep(0.05)  # a handler is still winding down to finish()
+    await runner.cleanup()
+
+
 async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
     state = new_state(args.name, out)
-    runner = web.AppRunner(make_app(state), shutdown_timeout=90.0)
+    runner = web.AppRunner(
+        make_app(state), shutdown_timeout=5.0
+    )  # sessions are finished before cleanup
     await runner.setup()
     await web.TCPSite(runner, args.host, args.port).start()
-    ip = socket.gethostbyname(socket.gethostname())
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+    except OSError:
+        ip = "unknown"
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):  # before the load: an abort is honoured
+        loop.add_signal_handler(sig, stop.set)
     print(
         f"engine: listening on {args.host}:{args.port}; container address {ip}; "
         f"page http://{ip}:{args.port}/ health http://{ip}:{args.port}/health",
         flush=True,
     )
-    loop = asyncio.get_running_loop()
     executor = state["executor"]
+    started = time.monotonic()
     base, mimi = await loop.run_in_executor(executor, load_model, args)
     engine = Engine(base, mimi, "cuda", args.temp, args.temp_text)
     await loop.run_in_executor(executor, engine.warmup)
-    state["engine"], state["spm"] = engine, base.spm
-    print(f"engine: ready; stops after {args.max_minutes:g} min or SIGTERM", flush=True)
-    stop = asyncio.Event()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stop.set)
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(stop.wait(), timeout=60 * args.max_minutes)
+    if not stop.is_set():
+        state["engine"], state["spm"] = engine, base.spm
+        print(
+            f"engine: ready; stops after {args.max_minutes:g} min or SIGTERM",
+            flush=True,
+        )
+        left = max(0.0, 60 * args.max_minutes - (time.monotonic() - started))
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=left)
     print(
         "engine: stopping" + (" (signal)" if stop.is_set() else " (max minutes)"),
         flush=True,
     )
-    await runner.cleanup()  # closes open websockets; their sessions finish as tasks
-    if state["finishing"]:
-        await asyncio.gather(*state["finishing"])
+    await shutdown(state, runner)
     executor.shutdown(wait=True)
     print(f"engine: done, {state['sessions']} session(s) recorded", flush=True)
 
