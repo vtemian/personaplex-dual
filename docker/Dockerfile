@@ -28,8 +28,9 @@ ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
 # smokes). So moshi installs --no-deps and its real imports are pinned by hand,
 # measured on the box venv the same day: tts.py needs sphn, torch, safetensors,
 # sentencepiece, tqdm; loaders.py adds huggingface-hub (which brings tqdm); the
-# heavy extras (bitsandbytes, sounddevice, aiohttp) are imported by neither the
-# load path nor TTS and are deliberately absent.
+# heavy extras (bitsandbytes, sounddevice) are imported by neither the load path
+# nor TTS and are deliberately absent; aiohttp is here for dual.jobs.engine's
+# websocket server, not for moshi.
 RUN pip install --no-cache-dir --no-deps moshi==0.2.13 \
  && pip install --no-cache-dir \
       sphn==0.2.1 \
@@ -38,7 +39,8 @@ RUN pip install --no-cache-dir --no-deps moshi==0.2.13 \
       "safetensors>=0.4.0,<0.8.0" \
       "huggingface-hub>=0.24,<1.0" \
       "einops>=0.7,<0.9" \
-      "sentencepiece>=0.2.0,<0.3"
+      "sentencepiece>=0.2.0,<0.3" \
+      "aiohttp>=3.10,<4"
 
 # No weights are baked: the image stays ~5 GB so a push is cheap. The kyutai repos
 # (moshiko, tts-1.6b-en_fr, tts-voices) live in the box's shared HF cache, placed by
