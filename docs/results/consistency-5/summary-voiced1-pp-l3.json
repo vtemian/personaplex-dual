@@ -1,0 +1,104 @@
+[
+ {
+  "run": "voiced1-pp-l3",
+  "base": "personaplex",
+  "slice": 1,
+  "epoch": 1,
+  "content": {
+   "median_gap": 0.008786777034401894,
+   "median_floor": 0.0038547366857528687,
+   "p90_gap": 0.014688970148563386,
+   "p90_floor": 0.009983156062662604,
+   "turns": 65,
+   "passes": false
+  },
+  "all": {
+   "median_gap": 0.022343464195728302,
+   "median_floor": 0.001953850267454982,
+   "p90_gap": 0.04345368593931199,
+   "p90_floor": 0.004585883207619191,
+   "turns": 65,
+   "passes": false
+  },
+  "door_median": 0.003697250271216035,
+  "door_all_median": 0.0018988995580002666,
+  "tape_gap_median": 0.010278568603098392,
+  "tape_gap_all_median": 0.005708932876586914,
+  "tape_floor_median": 0.007172018755227327,
+  "tape_floor_all_median": 0.022931968793272972,
+  "gap_D_median": 0.007524525746703148,
+  "gap_D_all_median": 0.02061399817466736,
+  "floor_D_median": 0.0033775949850678444,
+  "floor_D_all_median": 0.001730305259115994,
+  "floor_D_b_median": 0.0036249232944101095,
+  "floor_D_b_all_median": 0.0018895239336416125
+ },
+ {
+  "run": "voiced1-pp-l3",
+  "base": "personaplex",
+  "slice": 1,
+  "epoch": 2,
+  "content": {
+   "median_gap": 0.010654639452695847,
+   "median_floor": 0.005688889417797327,
+   "p90_gap": 0.01837023086845875,
+   "p90_floor": 0.015711770206689842,
+   "turns": 65,
+   "passes": false
+  },
+  "all": {
+   "median_gap": 0.038105156272649765,
+   "median_floor": 0.0029157730750739574,
+   "p90_gap": 0.06495754569768906,
+   "p90_floor": 0.007827236875891687,
+   "turns": 65,
+   "passes": false
+  },
+  "door_median": 0.005428309552371502,
+  "door_all_median": 0.0025317901745438576,
+  "tape_gap_median": 0.015072040259838104,
+  "tape_gap_all_median": 0.007164447568356991,
+  "tape_floor_median": 0.010825698263943195,
+  "tape_floor_all_median": 0.040027517825365067,
+  "gap_D_median": 0.009862841106951237,
+  "gap_D_all_median": 0.03871176764369011,
+  "floor_D_median": 0.0042704567313194275,
+  "floor_D_all_median": 0.002233230508863926,
+  "floor_D_b_median": 0.00498888548463583,
+  "floor_D_b_all_median": 0.002460692310705781
+ },
+ {
+  "run": "voiced1-pp-l3",
+  "base": "personaplex",
+  "slice": 1,
+  "epoch": 3,
+  "content": {
+   "median_gap": 0.013866142369806767,
+   "median_floor": 0.009071139618754387,
+   "p90_gap": 0.02644486576318741,
+   "p90_floor": 0.01942538693547249,
+   "turns": 65,
+   "passes": false
+  },
+  "all": {
+   "median_gap": 0.048696767538785934,
+   "median_floor": 0.004464993253350258,
+   "p90_gap": 0.0829278975725174,
+   "p90_floor": 0.008663680031895637,
+   "turns": 65,
+   "passes": false
+  },
+  "door_median": 0.008226126432418823,
+  "door_all_median": 0.003816046519204974,
+  "tape_gap_median": 0.019914476200938225,
+  "tape_gap_all_median": 0.009303763508796692,
+  "tape_floor_median": 0.014057334512472153,
+  "tape_floor_all_median": 0.046520866453647614,
+  "gap_D_median": 0.014792070724070072,
+  "gap_D_all_median": 0.04683946073055267,
+  "floor_D_median": 0.006756951566785574,
+  "floor_D_all_median": 0.0032475306652486324,
+  "floor_D_b_median": 0.007461365312337875,
+  "floor_D_b_all_median": 0.0038409209810197353
+ }
+]

@@ -2142,3 +2142,9 @@ Result (`docs/results/consistency-2.md`): no λ = 3 epoch is both healthy and be
 - The baseline's own epoch 1 is silent at the spoken opening and fragmented, so those failures also occur in plain early training.
 
 GATE pending; recommended first: the baseline's epoch 3 and λ3's epoch 1 as controls (~1.6 GPU-hours).
+
+## Batch B15: voice-D teacher rows (2026-11-08)
+
+Vlad, at B14's GATE (B13 and B14 are recorded in `docs/plans/2026-11-05-consistency-loss.md`): "Plan voice-D teacher rows (Recommended)". The spec is `docs/plans/2026-11-08-voice-d-teacher.md`: a TTS voice D voices each typed row's typed turns and replaces the tape as the λ = 3 consistency teacher (run `voiced1-pp-l3`, render `render-2`).
+
+Result (`docs/results/consistency-5.md`): **NO BETTER** (the pre-registered D9 verdict); R failed, behaviour passed. R 2.28 / 1.87 / 1.53 (λ3-tape 2.51 / 1.95 / 1.87); the e3 CI against λ3-tape is −0.34 [−0.66, +0.03]. The ceiling did move (D‖A 0.75 × floor), but typed‖D stayed as large as the gap, and the drop in R is mostly a higher floor. Epoch 3 is healthy (swap 91, at the limit); the rule's epoch 1 is silent at the spoken opening. GATE-2 pending.
