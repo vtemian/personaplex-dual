@@ -72,3 +72,26 @@ sidebyside:
 .PHONY: position
 position:
 	PYTHONPATH=src uv run python -m dual.position $(FILES)
+
+.PHONY: engine replay tunnel session
+PORT ?= 8998
+# ENGINE_RUN, not RUN: measure and sidebyside test `$(if $(RUN),...)` and must keep seeing it unset
+ENGINE_RUN ?= cons1-pp-l3
+# the engine job: serves until --max-minutes (180) or `sparks abort`; epoch 3 is the job's default
+engine:
+	sh scripts/submit.sh engine-$(NAME) engine --name engine-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --port $(PORT) $(ARGS)
+
+# the offline check: all 13 holdout dialogues through the engine's own path, no network
+replay:
+	sh scripts/submit.sh replay-$(NAME) engine --name replay-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --render $(RENDER) --replay 13 $(ARGS)
+
+# the laptop's way in: ENGINE_IP is the container address the engine job prints first
+tunnel:
+	@test -n "$(ENGINE_IP)" || { echo "ENGINE_IP=<container address from the engine job's log>"; exit 1; }
+	@echo "open http://localhost:$(PORT)/ (Chrome, headphones); Ctrl-C closes the tunnel, not the engine"
+	ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -L $(PORT):$(ENGINE_IP):$(PORT) $(BOX)
+
+# one recorded session (or the replay) back to runs/ for the record
+session:
+	mkdir -p runs/$(NAME)
+	scp -r '$(BOX):/srv/spark/runs/$(NAME)/engine' runs/$(NAME)/
