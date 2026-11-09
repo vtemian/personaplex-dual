@@ -1552,7 +1552,7 @@ Ask with the verdict and these options:
 
 ## B15 as run (2026-11-08 / 09)
 
-- **Code:** V1-V4 as planned, plus two review fixes. `answer_pairs` checks every teacher pupil span's rendering,
+- **Code:** V1-V4 as planned, plus two review-fix commits (three changes). `answer_pairs` checks every teacher pupil span's rendering,
   not the `voiced_turns` metadata. `voiced_rows` refuses reserved labels. `render --from` refuses a missing
   voice file before the TTS and writes `stems.json` last, with the stems it covers. Also a V3 deviation: the
   plan's snippet let the per-batch `teachers` variable shadow the teacher map; it is renamed `targets`.
@@ -1562,4 +1562,4 @@ Ask with the verdict and these options:
 - **GATE-1:** passed (peaks 39.2 / 50.1 GiB, teacher 33%, startup = `cons1-pp-l3`'s).
 - **Run:** `LADDER=6` (13,227 s train, 5,366 s measure); decodes sbs-v1-e3 and sbs-v1-e1 (the rule's epoch)
   on `sbs2:72868db`, which read the new checkpoint. 8.07 GPU-hours in all.
-- **Verdict:** NO BETTER; R failed, behaviour passed (`docs/results/consistency-5.md`).
+- **Verdict:** NO BETTER; R failed. Behaviour passed at e3; the rule's e1 failed both (`docs/results/consistency-5.md`).
