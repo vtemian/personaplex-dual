@@ -646,6 +646,8 @@ async def websocket(request: web.Request) -> web.StreamResponse:
         raise web.HTTPForbidden(text="cross-origin websocket refused")
     if s["engine"] is None:
         raise web.HTTPServiceUnavailable(text="the model is still loading")
+    if s["closing"]:
+        raise web.HTTPServiceUnavailable(text="the engine is shutting down")
     if s["lock"].locked():
         raise web.HTTPConflict(text="a session is open; one at a time")
     await s["lock"].acquire()  # no await since the check: nobody else got in
@@ -694,6 +696,7 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
         "lock": asyncio.Lock(),
         "sessions": 0,
         "finishing": set(),
+        "closing": False,  # set by shutdown(): /ws refuses new sessions
         "open": set(),  # sessions whose worker has started and not yet finished
         # ONE long-lived thread: moshi captures CUDA graphs per process on first use,
         # and capture and replay must share a thread.
@@ -703,18 +706,36 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
     }
 
 
-async def shutdown(state: dict[str, Any], runner: Any) -> None:
+SHUTDOWN_BUDGET_S = 90.0
+
+
+async def shutdown(
+    state: dict[str, Any], runner: Any, budget: float = SHUTDOWN_BUDGET_S
+) -> None:
     """Stops and saves every open session, then tears the server down. Order matters:
     runner.cleanup() does not close websockets, it waits for their handlers, so the
     sessions are stopped first (the worker posts the sentinel, pump closes the socket,
-    the handler ends, finish saves) and only then is the runner cleaned up."""
-    for session in list(state["open"]):
-        session.stop()
+    the handler ends, finish saves) and only then is the runner cleaned up. New
+    sessions are refused from the start (503), every open session is stopped again on
+    each pass (stop only queues a command), and the wait is bounded by `budget`."""
+    state["closing"] = True
+    deadline = time.monotonic() + budget
     while state["open"] or state["finishing"]:
+        for session in list(state["open"]):
+            session.stop()
+        left = deadline - time.monotonic()
+        if left <= 0:
+            print(
+                f"shutdown budget spent, {len(state['open'])} session(s) still open",
+                flush=True,
+            )
+            break
         if state["finishing"]:
-            await asyncio.gather(*list(state["finishing"]), return_exceptions=True)
+            await asyncio.wait(list(state["finishing"]), timeout=min(0.05, left))
         else:
-            await asyncio.sleep(0.05)  # a handler is still winding down to finish()
+            await asyncio.sleep(
+                min(0.05, left)
+            )  # a handler is winding down to finish()
     await runner.cleanup()
 
 
