@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>personaplex-dual: typed or spoken</title>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; margin: 0; background: #111; color: #eee; }
+  header { padding: 12px 16px; border-bottom: 1px solid #333; display: flex; gap: 12px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #555; background: #222; color: #eee; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  #status { margin-left: auto; font-family: ui-monospace, monospace; font-size: 12px; color: #9a9; white-space: pre; }
+  #transcript { padding: 16px; min-height: 50vh; max-height: 70vh; overflow-y: auto; }
+  .moshi { color: #cde; }
+  .you { color: #fc8; display: block; margin: 8px 0 4px; }
+  .note { color: #888; display: block; margin: 8px 0; font-size: 13px; }
+  form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #333; }
+  input { flex: 1; font: inherit; padding: 8px 10px; border-radius: 6px; border: 1px solid #555; background: #1a1a1a; color: #eee; }
+</style>
+</head>
+<body>
+<header>
+  <h1>personaplex-dual</h1>
+  <button id="start">Start mic</button>
+  <button id="stop" disabled>Stop</button>
+  <span id="status">idle</span>
+</header>
+<div id="transcript"><span class="note">Headphones on. Start the mic, then speak, or type a turn below and press Enter. Moshi's words appear here and its voice plays.</span></div>
+<form id="typed">
+  <input id="text" placeholder="type a pupil turn and press Enter" autocomplete="off">
+  <button type="submit">Send</button>
+</form>
+<script>
+// The wire: one kind byte then the payload. Mirrors src/dual/engine.py.
+const READY = 0, AUDIO = 1, TEXT = 2, TYPED = 3, STATUS = 4;
+const RATE = 24000;            // Mimi's sample rate
+const FRAME = 1920;            // samples a frame, 80 ms
+const FULL_SCALE = 32767;      // int16
+
+let ws = null, ctx = null, node = null, source = null, stream = null;
+let playAt = 0;
+const el = (id) => document.getElementById(id);
+const dec = new TextDecoder(), enc = new TextEncoder();
+
+function say(cls, text) {
+  const t = el('transcript');
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = text;
+  t.appendChild(span);
+  t.scrollTop = t.scrollHeight;
+}
+
+function setStatus(s) {
+  if (typeof s === 'string') { el('status').textContent = s; return; }
+  const h = s.hear_ms || {}, b = s.burst_ms || {};
+  el('status').textContent =
+    `frames ${s.frames}  heard ${s.heard}  typed ${s.typed}  dropped ${s.dropped}` +
+    `  hear ${h.n ? h.mean.toFixed(0) + ' ms (p90 ' + h.p90.toFixed(0) + ')' : '-'}` +
+    `  burst ${b.n ? (b.mean / 1000).toFixed(2) + ' s' : '-'}`;
+}
+
+function send(kind, bytes) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const out = new Uint8Array(1 + bytes.byteLength);
+  out[0] = kind;
+  out.set(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), 1);
+  ws.send(out);
+}
+
+function toInt16(f32) {
+  const out = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    out[i] = Math.round(s * FULL_SCALE);
+  }
+  return out;
+}
+
+// Mic: the worklet gathers 128-sample blocks into whole frames and posts them.
+const WORKLET = `
+class Capture extends AudioWorkletProcessor {
+  constructor() { super(); this.parts = []; this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    this.parts.push(new Float32Array(ch));
+    this.n += ch.length;
+    if (this.n >= ${FRAME}) {
+      const out = new Float32Array(this.n);
+      let o = 0;
+      for (const p of this.parts) { out.set(p, o); o += p.length; }
+      this.port.postMessage(out, [out.buffer]);
+      this.parts = []; this.n = 0;
+    }
+    return true;
+  }
+}
+registerProcessor('capture', Capture);
+`;
+
+function play(bytes) {
+  if (!ctx) return;
+  const n = bytes.byteLength >> 1;
+  const i16 = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + 2 * n));
+  const buf = ctx.createBuffer(1, n, RATE);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) ch[i] = i16[i] / FULL_SCALE;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  const now = ctx.currentTime;
+  if (playAt < now + 0.05) playAt = now + 0.05;  // a little headroom, then back to back
+  src.start(playAt);
+  playAt += buf.duration;
+}
+
+function onMessage(ev) {
+  const data = new Uint8Array(ev.data);
+  const kind = data[0], payload = data.subarray(1);
+  if (kind === AUDIO) play(payload);
+  else if (kind === TEXT) say('moshi', dec.decode(payload));
+  else if (kind === STATUS) setStatus(JSON.parse(dec.decode(payload)));
+  else if (kind === READY) { say('note', 'model streaming: session ' + JSON.parse(dec.decode(payload)).session); setStatus('ready'); }
+}
+
+async function start() {
+  el('start').disabled = true;
+  ctx = new AudioContext({ sampleRate: RATE });
+  await ctx.resume();
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+  });
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })));
+  source = ctx.createMediaStreamSource(stream);
+  node = new AudioWorkletNode(ctx, 'capture');
+  node.port.onmessage = (e) => send(AUDIO, toInt16(e.data));
+  source.connect(node);
+  playAt = 0;
+  const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(scheme + location.host + '/ws');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => setStatus('connected, model opening…');
+  ws.onmessage = onMessage;
+  ws.onclose = (e) => { setStatus('closed ' + e.code); stop(false); };
+  ws.onerror = () => setStatus('socket error (is the engine ready? see /health)');
+  el('stop').disabled = false;
+}
+
+function stop(closeSocket = true) {
+  if (closeSocket && ws && ws.readyState === WebSocket.OPEN) ws.close();
+  if (source) { source.disconnect(); source = null; }
+  if (node) { node.port.onmessage = null; node.disconnect(); node = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  el('start').disabled = false;
+  el('stop').disabled = true;
+}
+
+el('start').onclick = () => start().catch(err => { say('note', 'could not start: ' + err); el('start').disabled = false; });
+el('stop').onclick = () => stop(true);
+el('typed').onsubmit = (ev) => {
+  ev.preventDefault();
+  const text = el('text').value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  send(TYPED, enc.encode(text));
+  say('you', 'you typed: ' + text);
+  el('text').value = '';
+};
+</script>
+</body>
+</html>
