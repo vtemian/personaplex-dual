@@ -68,11 +68,13 @@ from dual.engine import (
 )
 from dual.model import MEM_CAP_GIB
 from dual.probe_text import classify, content_ids, words_of
+from dual.sidebyside import StepInput, step_input
 from dual.turns import typed_tokens
 
 DEP_Q = 8  # the probe's and the side-by-side's: moshi's 8 depformer steps
 FREE_FRAMES = 150  # replay: frames moshi may answer in
 AFTER_END = 12  # replay: frames kept after </s>
+AFTER_END_LIMIT = 600  # replay --after-end: frames moshi may take to reach </s>
 MAX_TYPED_WORDS = 60  # a typed turn longer than this is refused (D4's cap)
 WARMUP_FRAMES = 4  # pays one-time compile/allocation costs, checks the path runs
 FULL_SCALE = 32767.0
@@ -102,6 +104,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="NO_TORCH_COMPILE=1 (moshi's torch.compile off)",
     )
+    p.add_argument("--seed", type=int, default=0, help="torch seed per replay session")
+    p.add_argument(
+        "--context",
+        choices=("none", "tutor"),
+        default="none",
+        help="tutor: teacher-force the tape history instead of turn 1 + a free run",
+    )
+    p.add_argument(
+        "--after-end",
+        action="store_true",
+        help="replay: wait up to 600 frames for </s> after turn 1 (not with tutor)",
+    )
     p.add_argument("--mem-cap-gib", type=float, default=MEM_CAP_GIB)
     args = p.parse_args(argv)
     if args.replay < 0:
@@ -112,7 +126,31 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--port must be in 1..65535")
     if args.temp < 0 or args.temp_text < 0:
         p.error("temperatures must be >= 0")
+    if args.seed < 0:
+        p.error("--seed must be >= 0")
+    if args.context == "tutor" and args.after_end:
+        p.error("--after-end is for the empty-session flow, not --context tutor")
     return args
+
+
+def wait_for_end(ids: Sequence[int]) -> int | None:
+    """The index of the first END (</s>) in `ids`, or None."""
+    for i, t in enumerate(ids):
+        if t == END:
+            return i
+    return None
+
+
+def context_steps(base: dict[str, Any], prefix: int) -> list[StepInput]:
+    """The teacher-forced steps of the first `prefix` frames of an undelayed tape row.
+    Inside the prefix every text and own entry is forced (an int)."""
+    if prefix < 1:
+        raise ValueError(f"prefix {prefix} < 1")
+    steps = [step_input(base, prefix, s) for s in range(prefix)]
+    for s, x in enumerate(steps):
+        if x.text is None or any(c is None for c in x.own):
+            raise ValueError(f"step {s} of the prefix {prefix} is not fully forced")
+    return steps
 
 
 def _col(codes: Sequence[int], device: str) -> torch.Tensor:
@@ -286,6 +324,24 @@ class Engine:
         self.counters.typed += 1
         return ids
 
+    def force_prefix(self, steps: Sequence[StepInput]) -> list[int]:
+        """Teacher-forces tape frames: each step's pupil codes in, its text and all own
+        codebooks forced. A frame's own codes, once out, are decoded and dropped so
+        Mimi's decoder stays in step. Returns the text ids as forced."""
+        ids: list[int] = []
+        for x in steps:
+            if x.text is None or any(c is None for c in x.own):
+                raise ValueError("force_prefix needs every text and own entry forced")
+            got, codes = self.step_codes(
+                _col(x.pupil, self.device),
+                forced=int(x.text),
+                own=_col([int(c) for c in x.own if c is not None], self.device),
+            )
+            if codes is not None:
+                self.mimi.decode(codes)
+            ids.append(got)
+        return ids
+
     def warmup(self) -> None:
         """A throwaway session that pays the one-time compile and allocation costs
         (moshi, Mimi) and checks the path runs."""
@@ -342,22 +398,31 @@ def replay(
         words = words_of(decode(content_ids(tokens)))
         second_pcm = pcm_frames_of(engine.mimi, second["A"]["pupil"], engine.device)
         for variant in ("typed", "spoken"):
+            torch.manual_seed(args.seed)
             engine.open()
             try:
                 t0 = time.monotonic()
-                heard: list[int] = []
-                for pcm in first:
-                    text, _ = engine.hear(pcm)
-                    heard.append(text)
                 answer: list[int] = []
+                ended: bool | None = None
                 end_at: int | None = None
-                for i in range(FREE_FRAMES):
-                    text, _ = engine.hear(ZERO_FRAME)
-                    answer.append(text)
-                    if end_at is None and text == END:
-                        end_at = i
-                    if end_at is not None and i >= end_at + AFTER_END:
-                        break
+                if args.context == "tutor":
+                    base = rec["base"]
+                    prefix = int(base["spans"][turns[1]]["start"])
+                    answer = engine.force_prefix(context_steps(base, prefix))
+                    spoken_1 = prefix
+                else:
+                    spoken_1 = len(first)
+                    for pcm in first:
+                        engine.hear(pcm)
+                    limit = AFTER_END_LIMIT if args.after_end else FREE_FRAMES
+                    for _ in range(limit):
+                        text, _ = engine.hear(ZERO_FRAME)
+                        answer.append(text)
+                        if end_at is None:
+                            end_at = wait_for_end(answer)
+                        if end_at is not None and len(answer) > end_at + AFTER_END:
+                            break
+                    ended = end_at is not None
                 typed_at = engine.counters.frames
                 if variant == "typed":
                     engine.type(tokens)
@@ -379,10 +444,13 @@ def replay(
                     "class": verdict,
                     "typed_words": words,
                     "first_answer": decode(content_ids(answer)),
+                    "forced": args.context == "tutor",
+                    "ended": ended,
+                    "end_frame": end_at,
                     "emitted": decode(content_ids(free)),
                     "emitted_ids": free,
                     "frames": {
-                        "spoken_1": len(first),
+                        "spoken_1": spoken_1,
                         "answer_1": len(answer),
                         "turn_2": free_at - typed_at,
                         "free": len(free),
@@ -392,6 +460,8 @@ def replay(
                     "burst_ms": c.burst.summary(),
                     "seconds": time.monotonic() - t0,
                 }
+                if args.context == "tutor":
+                    row["frames"]["prefix"] = spoken_1
                 rows.append(row)
                 print(
                     f"{rec['id']} {variant}: {verdict} in {row['seconds']:.0f}s | "
@@ -412,6 +482,12 @@ def replay(
         "run": None if args.bare else args.run,
         "epoch": None if args.bare else args.epoch,
         "temp": [args.temp, args.temp_text],
+        "variant_flags": {
+            "seed": args.seed,
+            "context": args.context,
+            "after_end": args.after_end,
+            "temps": [args.temp, args.temp_text],
+        },
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print("summary:", json.dumps(summary))

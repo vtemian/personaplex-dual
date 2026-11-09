@@ -11,7 +11,7 @@ import torch
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
-from dual.constants import GAP_FRAMES, PAD, SILENCE, SINE
+from dual.constants import CODEBOOKS, END, GAP_FRAMES, PAD, SILENCE, SINE
 from dual.engine import (
     AUDIO,
     FRAME_BYTES,
@@ -24,18 +24,22 @@ from dual.engine import (
     unpack,
 )
 from dual.jobs.engine import (
+    AFTER_END_LIMIT,
     CLIENT,
     DEP_Q,
     Engine,
     Session,
+    context_steps,
     make_app,
     new_state,
     parse_args,
     pcm_to_tensor,
     shutdown,
     tensor_to_pcm,
+    wait_for_end,
     wav_of,
 )
+from dual.sidebyside import step_input
 
 
 def test_defaults_are_the_checkpoint_and_the_server():
@@ -519,3 +523,76 @@ def test_engine_close_clears_its_state_when_the_stack_raises(monkeypatch):
     assert not e.is_open
     e.open()  # not stuck "already open"
     e.close()
+
+
+def test_variant_flag_defaults():
+    a = parse_args(["--name", "r"])
+    assert (a.seed, a.context, a.after_end) == (0, "none", False)
+    assert AFTER_END_LIMIT == 600
+
+
+def test_variant_flags_parse_and_are_checked():
+    a = parse_args(["--name", "r", "--seed", "3", "--context", "tutor"])
+    assert (a.seed, a.context, a.after_end) == (3, "tutor", False)
+    assert parse_args(["--name", "r", "--after-end"]).after_end is True
+    for bad in (
+        ["--seed", "-1"],
+        ["--context", "bogus"],
+        ["--context", "tutor", "--after-end"],
+    ):
+        with pytest.raises(SystemExit):
+            parse_args(["--name", "r", *bad])
+
+
+def _base_row(frames=6):
+    return {
+        "text": [20 + i for i in range(frames)],
+        "pupil": [[100 + i * 10 + k for k in range(CODEBOOKS)] for i in range(frames)],
+        "own": [[200 + i * 10 + k for k in range(CODEBOOKS)] for i in range(frames)],
+        "spans": [],
+    }
+
+
+def test_context_steps_equal_step_input_and_own_is_forced():
+    row = _base_row()
+    steps = context_steps(row, 4)
+    assert steps == [step_input(row, 4, s) for s in range(4)]
+    assert len(steps) == 4
+    for x in steps:
+        assert x.text is not None
+        assert len(x.own) == CODEBOOKS and all(isinstance(c, int) for c in x.own)
+    assert steps[0].own[1] == 200 + 1  # delayed codebook at step 0: frame 0
+    assert steps[3].own[1] == 220 + 1  # frame 3 - 1 = 2
+    for bad in (0, -1, 7):
+        with pytest.raises(ValueError):
+            context_steps(row, bad)
+
+
+def test_force_prefix_steps_and_forces_the_text(monkeypatch):
+    e = _engine(monkeypatch)
+    row = _base_row()
+    steps = context_steps(row, 4)
+    e.open()
+    ids = e.force_prefix(steps)
+    assert ids == [20, 21, 22, 23]  # forced, not the stub's sampled 7
+    assert e.counters.frames == 4
+    seen = e.lm_gen.seen
+    assert [p for p, _ in seen] == [list(x.pupil) for x in steps]
+    assert [o for _, o in seen] == [list(x.own) for x in steps]
+    e.close()
+
+
+def test_force_prefix_refuses_a_free_own_entry(monkeypatch):
+    e = _engine(monkeypatch)
+    row = _base_row()
+    bad = step_input(row, 2, 3)  # past the prefix: text and own[0] are free
+    e.open()
+    with pytest.raises(ValueError, match="forced"):
+        e.force_prefix([bad])
+    e.close()
+
+
+def test_wait_for_end():
+    assert wait_for_end([]) is None
+    assert wait_for_end([PAD, 9, PAD]) is None
+    assert wait_for_end([PAD, 9, END, END, 5]) == 2
