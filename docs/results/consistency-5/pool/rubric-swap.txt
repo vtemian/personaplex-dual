@@ -1,0 +1,10 @@
+Each item shows the previous tutor turn, two candidate pupil turns P and Q, and the tutor's
+answer. Exactly one of P and Q is what the pupil said right before this answer; the other is a
+decoy. Decide which pupil turn the answer's OPENING takes up (agrees with, corrects, quotes or
+reuses its specific answer, number, claim or question). Judge only by the answer's content, not
+by which pupil turn fits the previous tutor turn better: the pupil may have said something odd.
+- "P" or "Q": the opening clearly takes up that one and not the other.
+- "both": it is consistent with both equally (e.g. both said the same number).
+- "neither": it takes up neither (generic, off-topic, silent, or a number neither said).
+Judge mainly the first two sentences.
+Output keys: id, takes_up, why (at most 12 words).

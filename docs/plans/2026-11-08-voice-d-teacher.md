@@ -1547,3 +1547,19 @@ Ask with the verdict and these options:
   side-by-side does not decode a D rendering. If GATE-2 needs it, a decode of render-2's D is a
   follow-up (~0.8 h).
 - **Voice-D render time** is an extrapolation from render-1 (~2.5 s per segment, unbatched).
+
+---
+
+## B15 as run (2026-11-08 / 09)
+
+- **Code:** V1-V4 as planned, plus two review-fix commits (three changes). `answer_pairs` checks every teacher pupil span's rendering,
+  not the `voiced_turns` metadata. `voiced_rows` refuses reserved labels. `render --from` refuses a missing
+  voice file before the TTS and writes `stems.json` last, with the stems it covers. Also a V3 deviation: the
+  plan's snippet let the per-batch `teachers` variable shadow the teacher map; it is renamed `targets`.
+  Merged to main at 80d7766 (334 tests); image `voiced1:80d7766`.
+- **GATE-0:** all three candidates were admissible. D = D3 = `vctk/p294_023.wav` (r 0.755, r_b 0.937, s 0.954;
+  D1 had the smallest r, 0.730, but a larger r_b). The screen reproduced B12 e3 exactly.
+- **GATE-1:** passed (peaks 39.2 / 50.1 GiB, teacher 33%, startup = `cons1-pp-l3`'s).
+- **Run:** `LADDER=6` (13,227 s train, 5,366 s measure); decodes sbs-v1-e3 and sbs-v1-e1 (the rule's epoch)
+  on `sbs2:72868db`, which read the new checkpoint. 8.07 GPU-hours in all.
+- **Verdict:** NO BETTER; R failed. Behaviour passed at e3; the rule's e1 failed both (`docs/results/consistency-5.md`).
