@@ -3,6 +3,7 @@ import contextlib
 import json
 import pathlib
 import sys
+import time
 import types
 
 import pytest
@@ -467,6 +468,40 @@ def test_shutdown_with_no_session_just_cleans_up(tmp_path):
         runner = _StubRunner()
         await shutdown(state, runner)
         assert runner.cleaned == 1 and state["sessions"] == 0
+
+    asyncio.run(go())
+
+
+def test_websocket_refuses_new_sessions_while_closing(tmp_path):
+    from aiohttp import WSServerHandshakeError
+
+    async def go():
+        state = new_state("engine-closing", tmp_path)
+        state["engine"], state["spm"] = FakeEngine(), FakeSpm()
+        state["closing"] = True
+        async with TestClient(TestServer(make_app(state))) as client:
+            with pytest.raises(WSServerHandshakeError) as err:
+                await client.ws_connect("/ws")
+            assert err.value.status == 503
+            assert state["lock"].locked() is False
+
+    asyncio.run(go())
+
+
+def test_shutdown_gives_up_after_its_budget(tmp_path):
+    class Stuck:
+        def stop(self):
+            pass
+
+    async def go():
+        state = new_state("engine-budget", tmp_path)
+        state["open"].add(Stuck())
+        runner = _StubRunner()
+        t0 = time.monotonic()
+        await shutdown(state, runner, budget=0.2)
+        assert time.monotonic() - t0 < 1.0
+        assert runner.cleaned == 1
+        assert state["closing"] is True
 
     asyncio.run(go())
 
