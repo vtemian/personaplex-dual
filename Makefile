@@ -82,6 +82,7 @@ engine:
 	sh scripts/submit.sh engine-$(NAME) engine --name engine-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --port $(PORT) $(ARGS)
 
 # the offline check: all 13 holdout dialogues through the engine's own path, no network
+# ARGS: --temp X --temp-text X --seed N, --context tutor, --after-end, --eager, --bare
 replay:
 	sh scripts/submit.sh replay-$(NAME) engine --name replay-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --render $(RENDER) --replay 13 $(ARGS)
 
