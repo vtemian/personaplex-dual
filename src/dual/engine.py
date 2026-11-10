@@ -158,6 +158,19 @@ def system_prompt_frames(
     return frames
 
 
+def prompt_steps(frames: Sequence[Frame]) -> list[Frame]:
+    """The N per-step inputs for moshi 0.2.13 from the N undelayed prompt frames L.
+    moshi 0.2.13 writes the hooked text token and all 8 replace tokens at slot
+    offset+1 with no per-codebook delay, so they must come already delayed.
+    PersonaPlex's slot p holds text[p], own cb0[p], own cb1-7[p-1]; its frame 0 is
+    overwritten by initial tokens and never seen, so it is dropped: step s is
+    (L[s+1].text, L[s+1] cb0 + L[s] cb1-7, pupil), L[N] being PAD/SILENCE/SINE.
+    Step N-1 forces slot N to PAD/SILENCE where PersonaPlex samples it: the one known
+    difference. Slot 1's cb1-7 become initial tokens via moshi's is_init, as there."""
+    rest = [*frames[1:], (PAD, SILENCE, SINE)]
+    return [(r[0], (r[1][0], *frames[s][1][1:]), r[2]) for s, r in enumerate(rest)]
+
+
 def is_word(token: int) -> bool:
     return token >= SPECIALS
 

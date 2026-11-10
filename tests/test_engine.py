@@ -25,6 +25,7 @@ from dual.engine import (
     is_word,
     pack,
     piece_text,
+    prompt_steps,
     replay_summary,
     session_name,
     step_row,
@@ -246,3 +247,18 @@ def test_first_class_counts_skip_none():
     assert got["spoken"] == {"answer": 0, "echo": 2, "ignore": 0}
     with pytest.raises(ValueError, match="variant"):
         first_class_counts([{"variant": "sung", "first_class": "echo"}])
+
+
+def test_prompt_steps_use_moshis_delayed_layout():
+    n = 4
+    frames = [
+        (10 + i, (i * 10 + 1, *tuple(i * 10 + k for k in range(2, 9))), SINE)
+        for i in range(n)
+    ]
+    steps = prompt_steps(frames)
+    assert len(steps) == n
+    for s in range(n - 1):
+        assert steps[s][0] == frames[s + 1][0]
+        assert steps[s][1] == (frames[s + 1][1][0], *frames[s][1][1:])
+        assert steps[s][2] == SINE
+    assert steps[-1] == (PAD, (SILENCE[0], *frames[-1][1][1:]), SINE)

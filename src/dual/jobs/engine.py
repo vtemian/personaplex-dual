@@ -66,6 +66,7 @@ from dual.engine import (
     is_word,
     pack,
     piece_text,
+    prompt_steps,
     replay_summary,
     session_name,
     step_row,
@@ -237,7 +238,9 @@ def encode_voice_wav(path: pathlib.Path, mimi: Any, device: str) -> list[list[in
     """A voice .wav -> its Mimi codes, one row of CODEBOOKS ints a frame. Read at
     24 kHz (resampled if needed), first channel, peak-normalised to VOICE_PEAK of full
     scale (PersonaPlex normalises to -24 LUFS; there is no pyloudnorm here), zero-padded
-    to whole frames, encoded in one non-streaming pass outside any session."""
+    to whole frames, encoded in one non-streaming pass outside any session.
+    PersonaPlex encodes frame by frame while streaming, so edge codes may differ
+    slightly; the `.codes.json` path is the one used."""
     import sphn  # type: ignore[import-untyped]
 
     data, _ = sphn.read(str(path), sample_rate=SAMPLE_RATE)
@@ -523,10 +526,11 @@ class Engine:
 
     def system_prompt(self, frames: Sequence[Frame]) -> list[int]:
         """PersonaPlex's session prompt: each frame's text and own codes forced, the
-        pupil stream as given; nothing decoded or played. Mimi's streaming state is
+        pupil stream as given; nothing decoded or played. The frames are undelayed;
+        `prompt_steps` lays them out as moshi 0.2.13 expects. Mimi's streaming state is
         reset after, as PersonaPlex's server does. Returns the text ids as forced."""
         ids: list[int] = []
-        for text, own, pupil in frames:
+        for text, own, pupil in prompt_steps(frames):
             got, _ = self.step_codes(
                 _col(pupil, self.device), forced=int(text), own=_col(own, self.device)
             )

@@ -58,6 +58,8 @@ Server defaults differ from ours in two ways, kept as known differences:
   not pin: the prompt slides out of the 2048-frame context after ~2.7 min of session.
 - Sampling: LMGen defaults temp 0.8, temp_text 0.7, top_k 250, top_k_text 25; ours
   are greedy unless `--temp/--temp-text` (moshi's top_k defaults are the same).
+- The prompt's step layout follows moshi 0.2.13's delayed replace convention; the slot
+  right after the prompt has its text/cb0 forced PAD/SILENCE where PersonaPlex samples it.
 
 ## The prompts used
 

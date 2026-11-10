@@ -21,6 +21,7 @@ from dual.engine import (
     TYPED,
     Counters,
     pack,
+    prompt_steps,
     unpack,
 )
 from dual.jobs.engine import (
@@ -1169,8 +1170,10 @@ def test_engine_system_prompt_forces_text_and_own_codes_then_resets_mimi(monkeyp
         (77, SILENCE, SINE),
     ]
     ids = e.system_prompt(frames)
-    assert ids == [PAD, PAD, 77]  # forced, not the stub's sampled 7
-    assert e.lm_gen.seen == [(list(SINE), list(own)) for _, own, _ in frames]
+    steps = prompt_steps(frames)
+    assert ids == [t for t, _, _ in steps] == [PAD, 77, PAD]  # forced, not sampled 7
+    assert e.lm_gen.seen == [(list(SINE), list(own)) for _, own, _ in steps]
+    assert steps[0][1] == (SILENCE[0], *(4,) * 7)
     assert e.mimi.resets == 1
     c = e.counters
     assert c.frames == 3
