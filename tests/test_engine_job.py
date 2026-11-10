@@ -29,7 +29,10 @@ from dual.jobs.engine import (
     DEP_Q,
     ZERO_FRAME,
     Engine,
+    Prompt,
     Session,
+    check_prompt,
+    complete_prompt,
     context_steps,
     make_app,
     new_state,
@@ -39,6 +42,7 @@ from dual.jobs.engine import (
     pick_opening,
     replay,
     resolve_opening,
+    resolve_prompt,
     serve,
     shutdown,
     tensor_to_pcm,
@@ -122,6 +126,11 @@ class _StubGen:
 
 
 class _StubMimi:
+    resets = 0
+
+    def reset_streaming(self):
+        self.resets += 1
+
     def streaming(self, batch):
         return contextlib.nullcontext()
 
@@ -183,6 +192,14 @@ class FakeEngine:
         self.opened = 0
         self.closed = 0
         self.typed: list[list[int]] = []
+        self.prompted: list[list] = []
+        self.order: list[str] = []
+
+    def system_prompt(self, frames):
+        self.order.append("prompt")
+        self.prompted.append(list(frames))
+        self.counters.frames += len(frames)
+        return [int(t) for t, _, _ in frames]
 
     def open(self):
         self.opened += 1
@@ -959,7 +976,10 @@ def _holdout(tmp_path, monkeypatch, prefixes):
                 "base": base,
                 "pupil_turns": [0, 2],
                 "renderings": {
-                    "0": {"A": {"pupil": [[1] * CODEBOOKS]}},
+                    "0": {
+                        "typed": {"text": [20, 21] + [PAD] * GAP_FRAMES},
+                        "A": {"pupil": [[1] * CODEBOOKS]},
+                    },
                     "2": {"typed": {"text": typed}, "A": {"pupil": [[2] * CODEBOOKS]}},
                 },
             }
@@ -1023,3 +1043,326 @@ def test_replay_context_tutor_gives_each_stem_its_own_prefix(tmp_path, monkeypat
     assert [r["frames"]["prefix"] for r in rows] == [3, 3, 5, 5]
     assert all(r["forced"] is True and "opening" not in r for r in rows)
     assert summary["variant_flags"]["opening"] is None
+
+
+def _voice_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "models" / "personaplex-7b-v1" / "voices"
+    d.mkdir(parents=True)
+    return d
+
+
+def _voice_json(d, name="X.codes.json", frames=3, **extra):
+    codes = [[i + 1] * CODEBOOKS for i in range(frames)]
+    (d / name).write_text(json.dumps({"voice": "X", "codes": codes, **extra}))
+    return codes
+
+
+def test_prompt_flags_default_off_and_are_checked():
+    a = parse_args(["--name", "r"])
+    assert a.voice_prompt is None and a.text_prompt is None
+    a = parse_args(["--name", "r", "--voice-prompt", "X.json", "--text-prompt", "hi"])
+    assert (a.voice_prompt, a.text_prompt) == ("X.json", "hi")
+    for bad in (
+        ["--voice-prompt", "/etc/passwd"],
+        ["--voice-prompt", "../X.json"],
+        ["--voice-prompt", "a/../../X.json"],
+        ["--text-prompt", "  "],
+    ):
+        with pytest.raises(SystemExit):
+            parse_args(["--name", "r", *bad])
+
+
+def test_check_prompt_loads_a_json_voice_under_the_voices_dir(tmp_path, monkeypatch):
+    d = _voice_dir(tmp_path, monkeypatch)
+    codes = _voice_json(d)
+    assert check_prompt(parse_args(["--name", "r"])) is None
+    p = check_prompt(
+        parse_args(
+            ["--name", "r", "--voice-prompt", "X.codes.json", "--text-prompt", "t"]
+        )
+    )
+    assert p.voice == "X.codes.json" and p.codes == codes and p.text == "t"
+    assert p.path == d / "X.codes.json" and p.frames == []  # built after the load
+    only_text = check_prompt(parse_args(["--name", "r", "--text-prompt", "t"]))
+    assert only_text.voice is None and only_text.codes is None
+
+
+def test_check_prompt_fails_before_any_model(tmp_path, monkeypatch):
+    d = _voice_dir(tmp_path, monkeypatch)
+
+    def bad(*argv):
+        return parse_args(["--name", "r", *argv])
+
+    with pytest.raises(ValueError, match="not found"):
+        check_prompt(bad("--voice-prompt", "NOPE.codes.json"))
+    (d / "bad.json").write_text("{not json")
+    with pytest.raises(ValueError, match="not a voice codes file"):
+        check_prompt(bad("--voice-prompt", "bad.json"))
+    (d / "nokey.json").write_text("{}")
+    with pytest.raises(ValueError, match="not a voice codes file"):
+        check_prompt(bad("--voice-prompt", "nokey.json"))
+    (d / "short.json").write_text(json.dumps({"codes": [[1, 2, 3]]}))
+    with pytest.raises(ValueError, match="voice frame 0"):
+        check_prompt(bad("--voice-prompt", "short.json"))
+    (d / "none.json").write_text(json.dumps({"codes": []}))
+    with pytest.raises(ValueError, match="no voice frames"):
+        check_prompt(bad("--voice-prompt", "none.json"))
+    (d / "v.mp3").write_text("x")
+    with pytest.raises(ValueError, match=r"\.json or a \.wav"):
+        check_prompt(bad("--voice-prompt", "v.mp3"))
+    (d / "v.wav").write_text("x")  # exists; decoded only after the load
+    assert check_prompt(bad("--voice-prompt", "v.wav")).codes is None
+
+
+def test_resolve_prompt_tokenizes_the_wrapped_text_after_the_load(
+    tmp_path, monkeypatch
+):
+    d = _voice_dir(tmp_path, monkeypatch)
+    codes = _voice_json(d)
+    seen: list[str] = []
+
+    class Spm(FakeSpm):
+        def EncodeAsIds(self, s):
+            seen.append(s)
+            return super().EncodeAsIds(s)
+
+    args = parse_args(
+        ["--name", "r", "--voice-prompt", "X.codes.json", "--text-prompt", "be kind"]
+    )
+    p = resolve_prompt(args, Spm())
+    assert seen == ["<system> be kind <system>"]
+    assert p.tokens == [10, 11, 12, 13]
+    assert len(p.frames) == 3 + 6 + 4 + 6
+    assert [f[1] for f in p.frames[:3]] == [tuple(c) for c in codes]
+    assert resolve_prompt(parse_args(["--name", "r"]), Spm()) is None
+
+
+def test_wav_voice_is_normalised_padded_and_encoded(tmp_path, monkeypatch):
+    import numpy as np
+    import sphn
+
+    d = _voice_dir(tmp_path, monkeypatch)
+    pcm = (0.1 * np.sin(np.linspace(0, 200, 2500))).astype(np.float32)
+    sphn.write_wav(str(d / "v.wav"), pcm, 24000)
+    got: dict = {}
+
+    class Mimi:
+        def encode(self, t):
+            got["shape"], got["peak"] = tuple(t.shape), float(t.abs().max())
+            return torch.arange(3).view(1, 1, 3).expand(1, 8, 3).clone()
+
+    p = check_prompt(parse_args(["--name", "r", "--voice-prompt", "v.wav"]))
+    complete_prompt(p, FakeSpm(), Mimi(), "cpu")
+    assert got["shape"] == (1, 1, 3840)  # 2500 samples padded to two frames
+    assert abs(got["peak"] - 0.5) < 1e-3
+    assert p.codes == [[0] * 8, [1] * 8, [2] * 8]
+    assert len(p.frames) == 3 + 6 + 6
+
+
+def test_engine_system_prompt_forces_text_and_own_codes_then_resets_mimi(monkeypatch):
+    e = _engine(monkeypatch)
+    e.open()
+    frames = [
+        (PAD, (4,) * 8, SINE),
+        (PAD, SILENCE, SINE),
+        (77, SILENCE, SINE),
+    ]
+    ids = e.system_prompt(frames)
+    assert ids == [PAD, PAD, 77]  # forced, not the stub's sampled 7
+    assert e.lm_gen.seen == [(list(SINE), list(own)) for _, own, _ in frames]
+    assert e.mimi.resets == 1
+    c = e.counters
+    assert c.frames == 3
+    assert (c.typed, c.heard, c.hear.summary()["n"], c.burst.summary()["n"]) == (
+        0,
+        0,
+        0,
+        0,
+    )
+    assert e.forced is None
+    e.close()
+
+
+def _prompt(n_voice=2, text_tokens=(40, 41)):
+    from dual.engine import system_prompt_frames
+
+    codes = [[i + 1] * CODEBOOKS for i in range(n_voice)]
+    tokens = list(text_tokens)
+    return Prompt(
+        "X.codes.json",
+        None,
+        codes,
+        "be kind",
+        tokens,
+        system_prompt_frames(codes, tokens),
+    )
+
+
+def test_replay_runs_the_prompt_first_and_classifies_turn_one(tmp_path, monkeypatch):
+    _holdout(tmp_path, monkeypatch, [("a", 3), ("b", 5)])
+    seen_first: list = []
+    monkeypatch.setattr(
+        "dual.jobs.engine.classify",
+        lambda words, free, dec: seen_first.append(words) or "echo",
+    )
+    e = _engine(monkeypatch)
+    order: list[str] = []
+    for name in ("open", "system_prompt", "hear", "type"):
+        real = getattr(e, name)
+
+        def wrap(*a, _real=real, _name=name, **k):
+            order.append(_name)
+            return _real(*a, **k)
+
+        setattr(e, name, wrap)
+    prompt = _prompt()
+    args = parse_args(
+        ["--name", "r", "--replay", "1", "--voice-prompt", "X", "--text-prompt", "t"]
+    )
+    out = tmp_path / "out"
+    out.mkdir()
+    replay(args, e, FakeSpm(), out, None, prompt)
+    assert order[:3] == ["open", "system_prompt", "hear"]  # prompt, then turn 1
+    rows = [json.loads(ln) for ln in (out / "replay.jsonl").read_text().splitlines()]
+    assert [r["variant"] for r in rows] == ["typed", "spoken"]
+    for r in rows:
+        assert r["frames"]["prompt"] == len(prompt.frames) == 2 + 6 + 2 + 6
+        assert r["first_class"] == "echo" and r["first_words"] == ["w20", "w21"]
+        assert r["frames"]["spoken_1"] == 1
+    assert ["w20", "w21"] in seen_first
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["first_classes"]["typed"] == {"answer": 0, "echo": 1, "ignore": 0}
+    assert summary["first_classes"]["spoken"]["echo"] == 1
+    assert summary["variant_flags"]["voice_prompt"] == "X"
+    assert summary["variant_flags"]["text_prompt"] == "t"
+
+
+def test_replay_without_a_prompt_has_zero_prompt_frames(tmp_path, monkeypatch):
+    _holdout(tmp_path, monkeypatch, [("a", 3)])
+    e = _engine(monkeypatch)
+    rows, summary = _replay(tmp_path, monkeypatch, e, [])
+    assert all(r["frames"]["prompt"] == 0 for r in rows)
+    assert e.mimi.resets == 0
+    assert summary["variant_flags"]["voice_prompt"] is None
+    assert summary["variant_flags"]["text_prompt"] is None
+
+
+def test_replay_forced_context_has_no_first_class(tmp_path, monkeypatch):
+    _holdout(tmp_path, monkeypatch, [("a", 3), ("b", 5)])
+    e, _ = _recording_engine(monkeypatch)
+    rows, summary = _replay(tmp_path, monkeypatch, e, ["--context", "tutor"])
+    assert all(r["first_class"] is None and r["first_words"] is None for r in rows)
+    assert summary["first_classes"]["typed"] == {"answer": 0, "echo": 0, "ignore": 0}
+
+
+def test_session_runs_the_prompt_before_ready_and_records_it(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng = FakeEngine()
+        prompt = _prompt()
+        s = Session(eng, FakeSpm(), tmp_path, loop, prompt=prompt)
+        for _ in range(3):  # mic frames queued during the prompt are dropped
+            s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+        _queue_stop(s)
+        s.run()
+        msgs = _drain(loop, s.outbox)
+        assert unpack(msgs[0])[0] == READY and msgs[-1] is None
+        assert eng.order == ["prompt"] and eng.prompted == [prompt.frames]
+        assert eng.counters.heard == 0 and eng.counters.dropped == 0
+        s.save()
+        meta = json.loads((s.dir / "meta.json").read_text())
+        n = len(prompt.frames)
+        assert meta["prompt"] == {
+            "voice": "X.codes.json",
+            "voice_frames": 2,
+            "text": "be kind",
+            "tokens": 2,
+            "frames": n,
+            "seconds": meta["prompt"]["seconds"],
+            "dropped": 3,
+            "wav_lead": "the prompt is not in either wav",
+        }
+        rows = [
+            json.loads(ln) for ln in (s.dir / "steps.jsonl").read_text().splitlines()
+        ]
+        assert [r["kind"] for r in rows] == ["prompt"] * n
+        assert [r["i"] for r in rows] == list(range(1, n + 1))
+    finally:
+        loop.close()
+
+
+def test_session_prompt_comes_before_the_opening(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng = FakeEngine()
+        calls: list[str] = []
+        real = eng.force_prefix
+
+        def force(steps, emit=None):
+            calls.append("opening")
+            return real(steps, emit=emit)
+
+        eng.force_prefix = force
+        steps = context_steps(_base_row(), 2)
+        s = Session(
+            eng, FakeSpm(), tmp_path, loop, opening=("a", steps), prompt=_prompt()
+        )
+        _queue_stop(s)
+        s.run()
+        assert eng.order == ["prompt"] and calls == ["opening"]
+        kinds = [unpack(m)[0] for m in _drain(loop, s.outbox) if m is not None]
+        assert kinds[0] == READY
+        s.save()
+        assert json.loads((s.dir / "meta.json").read_text())["opening"]["frames"] == 2
+    finally:
+        loop.close()
+
+
+def test_stop_during_the_prompt_finishes_it_then_stops(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng = FakeEngine()
+        s = Session(eng, FakeSpm(), tmp_path, loop, prompt=_prompt())
+        real = eng.system_prompt
+
+        def prompt_then_stop(frames):
+            ids = real(frames)
+            s.stop()
+            return ids
+
+        eng.system_prompt = prompt_then_stop
+        s.inbox.put(("type", "hi"))
+        s.run()
+        assert eng.typed == [] and eng.closed == 1 and s.error is None
+        assert s.prompt_meta is not None and s.prompt_meta["frames"] == 16
+        assert _drain(loop, s.outbox)[-1] is None
+    finally:
+        loop.close()
+
+
+def test_session_without_a_prompt_has_a_null_prompt(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng = FakeEngine()
+        s = Session(eng, FakeSpm(), tmp_path, loop)
+        s.stop()
+        s.run()
+        s.save()
+        meta = json.loads((s.dir / "meta.json").read_text())
+        assert meta["prompt"] is None and eng.order == []
+    finally:
+        loop.close()
+
+
+def test_serve_checks_the_prompt_before_the_model_loads(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "dual.jobs.engine.load_model",
+        lambda a: pytest.fail("the model must not load"),
+    )
+    args = parse_args(
+        ["--name", "r", "--opening", "none", "--voice-prompt", "MISSING.codes.json"]
+    )
+    with pytest.raises(ValueError, match="not found"):
+        asyncio.run(serve(args, tmp_path))

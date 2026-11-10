@@ -13,8 +13,10 @@ Two modes, one Engine:
   streaming state, each recorded under runs/<name>/engine/<session>/.
 
 The model loads as the side-by-side job loads it: adapters from the checkpoint, cast
-to bf16, `lm.dep_q = 8`, greedy by default. No voice prompt, no frame-0 text prompt:
-the measured condition of B10-B15.
+to bf16, `lm.dep_q = 8`, greedy by default. Prompts are off unless `--voice-prompt` /
+`--text-prompt`: PersonaPlex's session prompts, stepped right after a session opens
+(docs/plans/2026-11-10-step0-bare-live.md); without them, the measured condition of
+B10-B15.
 
 A sparks job cannot publish a port. The server binds 0.0.0.0 in the container and
 prints the container's bridge address first; the box host reaches it directly, the
@@ -36,6 +38,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -43,7 +46,7 @@ import numpy as np
 import torch
 from aiohttp import web
 
-from dual.constants import END, GAP_FRAMES, MIMI_SILENCE, PAD
+from dual.constants import CODEBOOKS, END, GAP_FRAMES, MIMI_SILENCE, PAD
 from dual.engine import (
     AUDIO,
     FRAME_BYTES,
@@ -54,18 +57,23 @@ from dual.engine import (
     TEXT,
     TYPED,
     Counters,
+    Frame,
     PcmBuffer,
     Timing,
     burst,
+    check_voice,
+    first_class_counts,
     is_word,
     pack,
     piece_text,
     replay_summary,
     session_name,
     step_row,
+    system_prompt_frames,
     trim_backlog,
     typed_words,
     unpack,
+    wrap_system,
 )
 from dual.model import MEM_CAP_GIB
 from dual.probe_text import classify, content_ids, words_of
@@ -79,6 +87,8 @@ AFTER_END_LIMIT = 600  # replay --after-end: frames moshi may take to reach </s>
 MAX_TYPED_WORDS = 60  # a typed turn longer than this is refused (D4's cap)
 WARMUP_FRAMES = 4  # pays one-time compile/allocation costs, checks the path runs
 FULL_SCALE = 32767.0
+VOICE_DIR = ("models", "personaplex-7b-v1", "voices")
+VOICE_PEAK = 0.5  # a voice .wav is peak-normalised to this fraction of full scale
 ZERO_FRAME = b"\x00" * FRAME_BYTES  # digital silence into the mic path
 CLIENT = pathlib.Path(__file__).resolve().parents[1] / "client.html"
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
@@ -125,6 +135,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="replay: wait up to 600 frames for </s> after turn 1 (context none only)",
     )
+    p.add_argument(
+        "--voice-prompt",
+        default=None,
+        metavar="FILE",
+        help="PersonaPlex's voice prompt: a .codes.json or .wav under "
+        "models/personaplex-7b-v1/voices/",
+    )
+    p.add_argument(
+        "--text-prompt",
+        default=None,
+        metavar="TEXT",
+        help="PersonaPlex's text system prompt, wrapped in <system> tags",
+    )
     p.add_argument("--mem-cap-gib", type=float, default=MEM_CAP_GIB)
     args = p.parse_args(argv)
     if args.replay < 0:
@@ -147,7 +170,108 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--context opening is a replay context: pass --replay N")
     if args.replay and args.context != "opening" and args.opening is not None:
         p.error("--opening with --replay needs --context opening")
+    if args.voice_prompt is not None:
+        try:
+            check_voice_name(args.voice_prompt)
+        except ValueError as e:
+            p.error(str(e))
+    if args.text_prompt is not None and not args.text_prompt.strip():
+        p.error("--text-prompt is blank")
     return args
+
+
+def check_voice_name(name: str) -> None:
+    """A voice file is a name under the voices directory: no absolute path, no `..`."""
+    rel = pathlib.PurePath(name)
+    if not name or rel.is_absolute() or ".." in rel.parts:
+        raise ValueError(f"--voice-prompt {name!r}: a file name under voices/ only")
+
+
+def voice_path(name: str) -> pathlib.Path:
+    check_voice_name(name)
+    return pathlib.Path.cwd().joinpath(*VOICE_DIR, name)
+
+
+@dataclass
+class Prompt:
+    """PersonaPlex's session prompt. `codes` is None for a .wav until Mimi exists;
+    `tokens` and `frames` are filled by `complete_prompt`."""
+
+    voice: str | None
+    path: pathlib.Path | None
+    codes: list[list[int]] | None
+    text: str | None
+    tokens: list[int] = field(default_factory=list)
+    frames: list[Frame] = field(default_factory=list)
+
+
+def check_prompt(args: argparse.Namespace) -> Prompt | None:
+    """The prompt flags checked before the model loads: the voice file exists and, for
+    json, parses to valid codes; the text is not blank. None when neither is given."""
+    if args.voice_prompt is None and args.text_prompt is None:
+        return None
+    path: pathlib.Path | None = None
+    codes: list[list[int]] | None = None
+    if args.voice_prompt is not None:
+        path = voice_path(args.voice_prompt)
+        if path.suffix not in (".json", ".wav"):
+            raise ValueError(f"{path}: a voice prompt is a .json or a .wav")
+        if not path.is_file():
+            raise ValueError(f"{path}: voice prompt not found")
+        if path.suffix == ".json":
+            try:
+                codes = [
+                    [int(c) for c in f] for f in json.loads(path.read_text())["codes"]
+                ]
+            except (KeyError, TypeError, ValueError) as e:
+                raise ValueError(f"{path}: not a voice codes file ({e!r})") from e
+            if not codes:
+                raise ValueError(f"{path}: no voice frames")
+            check_voice(codes)
+    if args.text_prompt is not None:
+        wrap_system(args.text_prompt)
+    return Prompt(args.voice_prompt, path, codes, args.text_prompt)
+
+
+def encode_voice_wav(path: pathlib.Path, mimi: Any, device: str) -> list[list[int]]:
+    """A voice .wav -> its Mimi codes, one row of CODEBOOKS ints a frame. Read at
+    24 kHz (resampled if needed), first channel, peak-normalised to VOICE_PEAK of full
+    scale (PersonaPlex normalises to -24 LUFS; there is no pyloudnorm here), zero-padded
+    to whole frames, encoded in one non-streaming pass outside any session."""
+    import sphn  # type: ignore[import-untyped]
+
+    data, _ = sphn.read(str(path), sample_rate=SAMPLE_RATE)
+    pcm = np.asarray(data[0], dtype=np.float32)
+    peak = float(np.abs(pcm).max()) if pcm.size else 0.0
+    if peak == 0.0:
+        raise ValueError(f"{path}: silent voice prompt")
+    pcm = pcm * (VOICE_PEAK / peak)
+    pcm = np.pad(pcm, (0, -len(pcm) % FRAME_SAMPLES))
+    with torch.no_grad():
+        t = torch.from_numpy(pcm).view(1, 1, -1).to(device)
+        codes = mimi.encode(t)  # [1, K, T]
+    return [[int(c) for c in row] for row in codes[0, :CODEBOOKS].t().tolist()]
+
+
+def complete_prompt(prompt: Prompt, spm: Any, mimi: Any, device: str) -> Prompt:
+    """Once the model is loaded: the wav's codes, the text's tokens, the frames."""
+    if prompt.codes is None and prompt.path is not None:
+        prompt.codes = encode_voice_wav(prompt.path, mimi, device)
+    prompt.tokens = (
+        [int(t) for t in spm.EncodeAsIds(wrap_system(prompt.text))]
+        if prompt.text is not None
+        else []
+    )
+    prompt.frames = system_prompt_frames(prompt.codes or [], prompt.tokens)
+    return prompt
+
+
+def resolve_prompt(
+    args: argparse.Namespace, spm: Any, mimi: Any = None, device: str = "cuda"
+) -> Prompt | None:
+    """`check_prompt` then `complete_prompt`, for callers past the load."""
+    prompt = check_prompt(args)
+    return None if prompt is None else complete_prompt(prompt, spm, mimi, device)
 
 
 def wait_for_end(ids: Sequence[int]) -> int | None:
@@ -397,6 +521,19 @@ class Engine:
         self.counters.typed += 1
         return ids
 
+    def system_prompt(self, frames: Sequence[Frame]) -> list[int]:
+        """PersonaPlex's session prompt: each frame's text and own codes forced, the
+        pupil stream as given; nothing decoded or played. Mimi's streaming state is
+        reset after, as PersonaPlex's server does. Returns the text ids as forced."""
+        ids: list[int] = []
+        for text, own, pupil in frames:
+            got, _ = self.step_codes(
+                _col(pupil, self.device), forced=int(text), own=_col(own, self.device)
+            )
+            ids.append(got)
+        self.mimi.reset_streaming()
+        return ids
+
     def force_prefix(
         self,
         steps: Sequence[StepInput],
@@ -459,9 +596,11 @@ def replay(
     spm: Any,
     out: pathlib.Path,
     opening: tuple[str, list[StepInput]] | None = None,
+    prompt: Prompt | None = None,
 ) -> None:
     """The B1.5 probe's scenario on this checkpoint through the live path (D6).
-    `opening` is `resolve_opening(args)`, given with `--context opening`."""
+    `opening` is `resolve_opening(args)`, given with `--context opening`; `prompt`
+    is stepped right after every session opens."""
     path = holdout_path(args.render)
     records = read_holdout(args.render)
     chosen = records[: args.replay]
@@ -483,11 +622,20 @@ def replay(
         second = rec["renderings"][str(turns[1])]
         tokens = [int(t) for t in second["typed"]["text"][:-GAP_FRAMES]]
         words = words_of(decode(content_ids(tokens)))
+        words_1: list[str] | None = None
+        if args.context == "none":
+            tokens_1 = [
+                int(t)
+                for t in rec["renderings"][str(turns[0])]["typed"]["text"][:-GAP_FRAMES]
+            ]
+            words_1 = words_of(decode(content_ids(tokens_1)))
         second_pcm = pcm_frames_of(engine.mimi, second["A"]["pupil"], engine.device)
         for variant in ("typed", "spoken"):
             torch.manual_seed(args.seed)
             engine.open()
             try:
+                if prompt is not None:
+                    engine.system_prompt(prompt.frames)
                 t0 = time.monotonic()
                 answer: list[int] = []
                 ended: bool | None = None
@@ -526,6 +674,9 @@ def replay(
                     text, _ = engine.hear(ZERO_FRAME)
                     free.append(text)
                 verdict = classify(words, free, decode)
+                first_class = (
+                    None if words_1 is None else classify(words_1, answer, decode)
+                )
                 c = engine.counters
                 hear_all.extend(c.hear)
                 burst_all.extend(c.burst)
@@ -533,6 +684,8 @@ def replay(
                     "stem": rec["id"],
                     "variant": variant,
                     "class": verdict,
+                    "first_class": first_class,
+                    "first_words": words_1,
                     "typed_words": words,
                     "first_answer": decode(content_ids(answer)),
                     "forced": args.context != "none",
@@ -541,6 +694,7 @@ def replay(
                     "emitted": decode(content_ids(free)),
                     "emitted_ids": free,
                     "frames": {
+                        "prompt": 0 if prompt is None else len(prompt.frames),
                         "spoken_1": spoken_1,
                         "answer_1": len(answer),
                         "turn_2": free_at - typed_at,
@@ -557,7 +711,8 @@ def replay(
                     row["opening"] = opening[0]
                 rows.append(row)
                 print(
-                    f"{rec['id']} {variant}: {verdict} in {row['seconds']:.0f}s | "
+                    f"{rec['id']} {variant}: {verdict} (first {first_class}) in "
+                    f"{row['seconds']:.0f}s | "
                     f"hear {c.hear.summary().get('mean', 0):.0f} ms | typed: "
                     f"{' '.join(words)!r} | emitted: {row['emitted']!r}"
                 )
@@ -568,6 +723,7 @@ def replay(
             f.write(json.dumps(row) + "\n")
     summary = {
         **replay_summary(rows),
+        "first_classes": first_class_counts(rows),
         "hear_ms": hear_all.summary(),
         "burst_ms": burst_all.summary(),
         "compile": not args.eager,
@@ -581,6 +737,8 @@ def replay(
             "after_end": args.after_end,
             "opening": None if opening is None else opening[0],
             "temps": [args.temp, args.temp_text],
+            "voice_prompt": args.voice_prompt,
+            "text_prompt": args.text_prompt,
         },
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -602,9 +760,12 @@ class Session:
         out: pathlib.Path,
         loop: asyncio.AbstractEventLoop,
         opening: tuple[str, list[StepInput]] | None = None,
+        prompt: Prompt | None = None,
     ) -> None:
         self.engine, self.spm, self.loop = engine, spm, loop
         self.opening = opening
+        self.prompt = prompt
+        self.prompt_meta: dict[str, Any] | None = None
         self.opening_meta: dict[str, Any] | None = None
         self.stopping = threading.Event()  # set by stop(); the opening polls it
         self.name = session_name()
@@ -646,6 +807,10 @@ class Session:
     def run(self) -> None:
         try:
             self.engine.open()
+            if self.prompt is not None:
+                self.play_prompt(self.prompt)
+                if self.stopping.is_set():  # the prompt runs to its end, then the stop
+                    return
             self.post(pack(READY, json.dumps({"session": self.name}).encode()))
             if self.opening is not None:
                 self.play_opening(*self.opening)
@@ -670,6 +835,32 @@ class Session:
                 print("session close error:", repr(e), flush=True)
             finally:
                 self.post(None)
+
+    def play_prompt(self, prompt: Prompt) -> None:
+        """Steps PersonaPlex's session prompt before READY. Nothing is played or heard;
+        the mic frames queued meanwhile are dropped, not counted as lag."""
+        at = self.engine.counters.frames
+        t0 = time.monotonic()
+        ids = self.engine.system_prompt(prompt.frames)
+        secs = time.monotonic() - t0
+        each = 1000 * secs / len(ids)
+        for i, t in enumerate(ids):
+            self.steps.append(step_row(at + 1 + i, "prompt", t, each))
+        self.prompt_meta = {
+            "voice": prompt.voice,
+            "voice_frames": len(prompt.codes or []),
+            "text": prompt.text,
+            "tokens": len(prompt.tokens),
+            "frames": len(ids),
+            "seconds": secs,
+            "dropped": self.drop_hears(self.inbox.qsize(), live=False),
+            "wav_lead": "the prompt is not in either wav",
+        }
+        print(
+            f"prompt: {len(ids)} frames in {secs:.1f}s, dropped "
+            f"{self.prompt_meta['dropped']} mic frames",
+            flush=True,
+        )
 
     def play_opening(self, stem: str, steps: list[StepInput]) -> None:
         """Forces the opening's frames, posting its voice and words as they come. A stop
@@ -784,7 +975,7 @@ class Session:
         )
 
     def save(self) -> None:
-        import sphn  # type: ignore[import-untyped]
+        import sphn
 
         self.dir.mkdir(parents=True, exist_ok=True)
         with (self.dir / "steps.jsonl").open("w") as f:
@@ -807,6 +998,7 @@ class Session:
             "dropped": c.dropped,  # live lag; the opening's is in opening
             "typed": self.typed_log,
             "opening": self.opening_meta,
+            "prompt": self.prompt_meta,
             "hear_ms": c.hear.summary(),
             "burst_ms": c.burst.summary(),
             "transcript": str(self.spm.DecodeIds(content_ids(said))),
@@ -908,6 +1100,7 @@ async def websocket(request: web.Request) -> web.StreamResponse:
             s["out"],
             asyncio.get_running_loop(),
             opening=s["opening"],
+            prompt=s["prompt"],
         )
         s["open"].add(session)
         loop = asyncio.get_running_loop()
@@ -950,6 +1143,7 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
         "sessions": 0,
         "finishing": set(),
         "opening": None,  # (stem, steps) every session starts with, or None
+        "prompt": None,  # the Prompt every session starts with, or None
         "closing": False,  # set by shutdown(): /ws refuses new sessions
         "open": set(),  # sessions whose worker has started and not yet finished
         # ONE long-lived thread: moshi captures CUDA graphs per process on first use,
@@ -997,6 +1191,10 @@ async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
     opening = resolve_opening(args)  # before the load: an unknown stem fails at once
     state = new_state(args.name, out)
     state["opening"] = opening
+    prompt = check_prompt(args)  # before the load: a missing voice file fails at once
+    state["prompt"] = prompt
+    if prompt is not None:
+        print(f"engine: prompt voice {prompt.voice} text {prompt.text!r}", flush=True)
     if opening is not None:
         print(f"engine: opening {opening[0]}, {len(opening[1])} frames", flush=True)
     runner = web.AppRunner(
@@ -1021,6 +1219,11 @@ async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
     started = time.monotonic()
     base, mimi = await loop.run_in_executor(executor, load_model, args)
     engine = Engine(base, mimi, "cuda", args.temp, args.temp_text)
+    if prompt is not None:
+        await loop.run_in_executor(
+            executor, complete_prompt, prompt, base.spm, mimi, "cuda"
+        )
+        print(f"engine: prompt {len(prompt.frames)} frames", flush=True)
     await loop.run_in_executor(executor, engine.warmup)
     if not stop.is_set():
         state["engine"], state["spm"] = engine, base.spm
@@ -1051,10 +1254,13 @@ def main() -> None:
     if args.replay:
         # before the load: an unknown stem fails at once
         opening = resolve_opening(args) if args.context == "opening" else None
+        prompt = check_prompt(args)
         base, mimi = load_model(args)
         engine = Engine(base, mimi, "cuda", args.temp, args.temp_text)
         engine.warmup()
-        replay(args, engine, base.spm, out, opening)
+        if prompt is not None:
+            complete_prompt(prompt, base.spm, mimi, "cuda")
+        replay(args, engine, base.spm, out, opening, prompt)
     else:
         asyncio.run(serve(args, out))
     print("engine job ok")
