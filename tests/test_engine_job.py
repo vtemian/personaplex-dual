@@ -27,6 +27,7 @@ from dual.jobs.engine import (
     AFTER_END_LIMIT,
     CLIENT,
     DEP_Q,
+    ZERO_FRAME,
     Engine,
     Session,
     context_steps,
@@ -36,6 +37,7 @@ from dual.jobs.engine import (
     parse_args,
     pcm_to_tensor,
     pick_opening,
+    replay,
     resolve_opening,
     serve,
     shutdown,
@@ -623,12 +625,21 @@ def test_opening_flags_default_and_are_checked():
     assert a.opening is None and a.context == "none"
     a = parse_args(["--name", "r", "--replay", "13", "--context", "opening"])
     assert a.context == "opening" and a.opening is None
-    a = parse_args(["--name", "r", "--context", "opening", "--opening", "dlg-1"])
+    a = parse_args(
+        ["--name", "r", "--replay", "1", "--context", "opening", "--opening", "dlg-1"]
+    )
     assert a.opening == "dlg-1"
+    assert (
+        parse_args(["--name", "r", "--replay", "1", "--context", "tutor"]).opening
+        is None
+    )
     assert parse_args(["--name", "r", "--opening", "none"]).opening == "none"
     for bad in (
         ["--context", "opening", "--after-end"],
         ["--context", "opening", "--opening", "none"],
+        ["--context", "opening"],  # needs --replay
+        ["--replay", "2", "--opening", "b"],  # context none: an opening is unused
+        ["--replay", "2", "--context", "tutor", "--opening", "b"],
     ):
         with pytest.raises(SystemExit):
             parse_args(["--name", "r", *bad])
@@ -708,7 +719,7 @@ def test_session_opens_with_the_forced_opening_then_hears(tmp_path):
             for _ in range(3):  # the pupil's mic while the opening played
                 s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
             s.inbox.put(("type", "hi"))
-            s.stop()
+            s.inbox.put(("stop", None))  # after the opening, not a mid-opening stop
             return ids
 
         eng.force_prefix = force
@@ -721,7 +732,7 @@ def test_session_opens_with_the_forced_opening_then_hears(tmp_path):
         assert kinds[1:4] == [TEXT, AUDIO, TEXT]  # no voice before the second frame
         assert kinds.count(TEXT) >= 4 and kinds.count(AUDIO) >= 3
         assert len(s.voiced) == 3  # the opening's voiced frames
-        assert eng.counters.dropped == 3 and eng.counters.heard == 0
+        assert eng.counters.dropped == 0 and eng.counters.heard == 0  # not lag
         assert eng.typed == [[10]]
         s.save()
         meta = json.loads((s.dir / "meta.json").read_text())
@@ -835,7 +846,8 @@ def test_typed_turn_queued_mid_opening_runs_and_no_stale_mic_is_heard(tmp_path):
         s.run()
         assert eng.typed == [[10]]
         assert eng.counters.heard == 0 and s.heard == []
-        assert eng.counters.dropped == 5
+        # the 3 the opening dropped are in meta["opening"], not the live lag counter
+        assert s.opening_meta["dropped"] == 3 and eng.counters.dropped == 2
     finally:
         loop.close()
 
@@ -901,3 +913,113 @@ def test_serve_resolves_the_opening_before_the_model_loads(tmp_path, monkeypatch
     with pytest.raises(RuntimeError, match="stop here"):
         asyncio.run(serve(args, tmp_path))
     assert order == ["resolve", "load"]
+
+
+def test_stop_mid_opening_wins_over_a_typed_turn_queued_before_it(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+
+        def type_then_stop(k):
+            if k == 2:
+                s.inbox.put(("type", "hi"))
+                s.stop()
+
+        eng, s = _opening_session(tmp_path, loop, hook=type_then_stop)
+        s.run()
+        assert eng.typed == [] and eng.counters.typed == 0
+        assert s.error is None and eng.closed == 1
+        assert _drain(loop, s.outbox)[-1] is None
+    finally:
+        loop.close()
+
+
+def test_opening_meta_says_the_pupil_lead_is_zeros(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        _eng, s = _opening_session(tmp_path, loop, n=2)
+        _queue_stop(s)
+        s.run()
+        s.save()
+        o = json.loads((s.dir / "meta.json").read_text())["opening"]
+        assert o["pupil_wav_lead"].startswith("zeros")
+    finally:
+        loop.close()
+
+
+def _holdout(tmp_path, monkeypatch, prefixes):
+    """A holdout of one record per (stem, prefix); the opening is spans[2] = prefix."""
+    rows = []
+    for stem, prefix in prefixes:
+        base = _base_row(frames=10)
+        base["spans"] = [{"start": 0}, {"start": 1}, {"start": prefix}]
+        typed = [30 + len(stem), 31] + [PAD] * GAP_FRAMES
+        rows.append(
+            {
+                "id": stem,
+                "base": base,
+                "pupil_turns": [0, 2],
+                "renderings": {
+                    "0": {"A": {"pupil": [[1] * CODEBOOKS]}},
+                    "2": {"typed": {"text": typed}, "A": {"pupil": [[2] * CODEBOOKS]}},
+                },
+            }
+        )
+    path = tmp_path / "runs" / "render-1" / "render" / "holdout.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "dual.jobs.engine.pcm_frames_of", lambda mimi, codes, device: [ZERO_FRAME]
+    )
+    monkeypatch.setattr("dual.jobs.engine.classify", lambda words, free, dec: "answer")
+    return rows
+
+
+def _recording_engine(monkeypatch):
+    e = _engine(monkeypatch)
+    forced: list[list] = []
+    real = e.force_prefix
+
+    def record(steps, emit=None):
+        forced.append(list(steps))
+        return real(steps, emit=emit)
+
+    e.force_prefix = record
+    return e, forced
+
+
+def _replay(tmp_path, monkeypatch, e, argv):
+    args = parse_args(["--name", "r", "--replay", "2", *argv])
+    opening = resolve_opening(args) if args.context == "opening" else None
+    out = tmp_path / "out"
+    out.mkdir()
+    replay(args, e, FakeSpm(), out, opening)
+    rows = [json.loads(ln) for ln in (out / "replay.jsonl").read_text().splitlines()]
+    return rows, json.loads((out / "summary.json").read_text())
+
+
+def test_replay_context_opening_forces_one_opening_in_every_stem(tmp_path, monkeypatch):
+    recs = _holdout(tmp_path, monkeypatch, [("a", 3), ("b", 5)])
+    e, forced = _recording_engine(monkeypatch)
+    rows, summary = _replay(
+        tmp_path, monkeypatch, e, ["--context", "opening", "--opening", "b"]
+    )
+    want = context_steps(recs[1]["base"], 5)
+    assert len(forced) == 4 and all(f == want for f in forced)  # 2 stems x 2 variants
+    assert len(rows) == 4
+    for row in rows:
+        assert row["forced"] is True and row["opening"] == "b"
+        assert row["frames"]["prefix"] == opening_prefix(recs[1]) == 5
+    assert {r["stem"] for r in rows} == {"a", "b"}
+    assert summary["variant_flags"]["opening"] == "b"
+
+
+def test_replay_context_tutor_gives_each_stem_its_own_prefix(tmp_path, monkeypatch):
+    recs = _holdout(tmp_path, monkeypatch, [("a", 3), ("b", 5)])
+    e, forced = _recording_engine(monkeypatch)
+    rows, summary = _replay(tmp_path, monkeypatch, e, ["--context", "tutor"])
+    assert forced[0] == forced[1] == context_steps(recs[0]["base"], 3)
+    assert forced[2] == forced[3] == context_steps(recs[1]["base"], 5)
+    assert [r["frames"]["prefix"] for r in rows] == [3, 3, 5, 5]
+    assert all(r["forced"] is True and "opening" not in r for r in rows)
+    assert summary["variant_flags"]["opening"] is None

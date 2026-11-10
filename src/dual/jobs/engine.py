@@ -143,6 +143,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         )
     if args.context == "opening" and args.opening == "none":
         p.error("--context opening needs an opening, not --opening none")
+    if args.context == "opening" and not args.replay:
+        p.error("--context opening is a replay context: pass --replay N")
+    if args.replay and args.context != "opening" and args.opening is not None:
+        p.error("--opening with --replay needs --context opening")
     return args
 
 
@@ -167,8 +171,8 @@ def context_steps(base: dict[str, Any], prefix: int) -> list[StepInput]:
 
 
 def opening_prefix(rec: dict[str, Any]) -> int:
-    """The frames of a stem's opening: the tape up to the start of the tutor's second
-    turn after the pupil's opener (`spans[pupil_turns[1]]`)."""
+    """The frames of a stem's opening: the tape up to the start of the pupil's second
+    turn (`spans[pupil_turns[1]]`)."""
     turns = rec["pupil_turns"]
     if len(turns) < 2:
         raise ValueError(f"{rec['id']}: fewer than two pupil turns")
@@ -450,14 +454,18 @@ def pcm_frames_of(
 
 
 def replay(
-    args: argparse.Namespace, engine: Engine, spm: Any, out: pathlib.Path
+    args: argparse.Namespace,
+    engine: Engine,
+    spm: Any,
+    out: pathlib.Path,
+    opening: tuple[str, list[StepInput]] | None = None,
 ) -> None:
-    """The B1.5 probe's scenario on this checkpoint through the live path (D6)."""
-    path = pathlib.Path.cwd() / "runs" / args.render / "render" / "holdout.jsonl"
+    """The B1.5 probe's scenario on this checkpoint through the live path (D6).
+    `opening` is `resolve_opening(args)`, given with `--context opening`."""
+    path = holdout_path(args.render)
     records = read_holdout(args.render)
     chosen = records[: args.replay]
     print(f"replay: {len(chosen)} of {len(records)} holdout dialogues from {path}")
-    opening = resolve_opening(args) if args.context == "opening" else None
 
     def decode(ids: list[int]) -> str:
         return str(spm.DecodeIds([int(i) for i in ids]))
@@ -641,6 +649,8 @@ class Session:
             self.post(pack(READY, json.dumps({"session": self.name}).encode()))
             if self.opening is not None:
                 self.play_opening(*self.opening)
+                if self.stopping.is_set():  # a stop mid-opening beats queued turns
+                    return
             while True:
                 cmd, arg = self.inbox.get()
                 if cmd == "stop":
@@ -700,7 +710,9 @@ class Session:
                 "stopped": stopped,
                 "text": str(self.spm.DecodeIds(content_ids(played))),
                 "seconds": time.monotonic() - t0,
-                "dropped": self.drop_hears(self.inbox.qsize()),
+                # not counters.dropped: that is the live lag, the opening is no lag
+                "dropped": self.drop_hears(self.inbox.qsize(), live=False),
+                "pupil_wav_lead": "zeros; the model heard the tape pupil's opener",
             }
             print(
                 f"opening {stem}: {len(played)} frames in "
@@ -715,14 +727,16 @@ class Session:
         with self.inbox.mutex:  # the asyncio side appends under the same lock
             return sum(1 for cmd, _ in self.inbox.queue if cmd == "hear")
 
-    def drop_hears(self, n: int) -> int:
-        """Drops up to `n` queued mic frames from the front, never a typed turn."""
+    def drop_hears(self, n: int, live: bool = True) -> int:
+        """Drops up to `n` queued mic frames from the front, never a typed turn. They
+        count in `counters.dropped` (the live lag) unless `live` is False."""
         dropped = 0
         q = self.inbox.queue  # the worker is the only consumer; a peek is atomic
         while dropped < n and q and q[0][0] == "hear":
             self.inbox.get_nowait()
             dropped += 1
-        self.engine.counters.dropped += dropped
+        if live:
+            self.engine.counters.dropped += dropped
         return dropped
 
     def handle_hear(self, frame: bytes) -> None:
@@ -790,7 +804,7 @@ class Session:
             "session": self.name,
             "frames": c.frames,
             "heard": c.heard,
-            "dropped": c.dropped,  # includes opening["dropped"]
+            "dropped": c.dropped,  # live lag; the opening's is in opening
             "typed": self.typed_log,
             "opening": self.opening_meta,
             "hear_ms": c.hear.summary(),
@@ -1035,10 +1049,12 @@ def main() -> None:
     out = pathlib.Path.cwd() / "runs" / args.name / "engine"
     out.mkdir(parents=True, exist_ok=True)
     if args.replay:
+        # before the load: an unknown stem fails at once
+        opening = resolve_opening(args) if args.context == "opening" else None
         base, mimi = load_model(args)
         engine = Engine(base, mimi, "cuda", args.temp, args.temp_text)
         engine.warmup()
-        replay(args, engine, base.spm, out)
+        replay(args, engine, base.spm, out, opening)
     else:
         asyncio.run(serve(args, out))
     print("engine job ok")
