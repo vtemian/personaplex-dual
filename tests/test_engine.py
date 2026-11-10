@@ -152,6 +152,7 @@ def test_counters_status_is_a_status_message():
 def test_step_row():
     row = step_row(7, "typed", 123, 88.456)
     assert row == {"i": 7, "kind": "typed", "text": 123, "ms": 88.46}
+    assert step_row(0, "opening", 5, 1.0)["kind"] == "opening"
     with pytest.raises(ValueError, match="step kind"):
         step_row(0, "sing", 1, 1.0)
 

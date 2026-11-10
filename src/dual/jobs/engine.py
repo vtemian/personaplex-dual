@@ -33,8 +33,9 @@ import pathlib
 import queue
 import signal
 import socket
+import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -107,14 +108,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=0, help="torch seed per replay session")
     p.add_argument(
         "--context",
-        choices=("none", "tutor"),
+        choices=("none", "tutor", "opening"),
         default="none",
-        help="tutor: teacher-force the tape history instead of turn 1 + a free run",
+        help="tutor: teacher-force the tape history instead of turn 1 + a free run; "
+        "opening: force the --opening stem's opening in every stem",
+    )
+    p.add_argument(
+        "--opening",
+        default=None,
+        metavar="STEM|none",
+        help="the holdout stem whose opening is forced at the start of a session "
+        "(default: the first record; none: no opening)",
     )
     p.add_argument(
         "--after-end",
         action="store_true",
-        help="replay: wait up to 600 frames for </s> after turn 1 (not with tutor)",
+        help="replay: wait up to 600 frames for </s> after turn 1 (context none only)",
     )
     p.add_argument("--mem-cap-gib", type=float, default=MEM_CAP_GIB)
     args = p.parse_args(argv)
@@ -128,8 +137,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("temperatures must be >= 0")
     if args.seed < 0:
         p.error("--seed must be >= 0")
-    if args.context == "tutor" and args.after_end:
-        p.error("--after-end is for the empty-session flow, not --context tutor")
+    if args.context != "none" and args.after_end:
+        p.error(
+            "--after-end is for the empty-session flow, not --context " + args.context
+        )
+    if args.context == "opening" and args.opening == "none":
+        p.error("--context opening needs an opening, not --opening none")
+    if args.context == "opening" and not args.replay:
+        p.error("--context opening is a replay context: pass --replay N")
+    if args.replay and args.context != "opening" and args.opening is not None:
+        p.error("--opening with --replay needs --context opening")
     return args
 
 
@@ -151,6 +168,62 @@ def context_steps(base: dict[str, Any], prefix: int) -> list[StepInput]:
         if x.text is None or any(c is None for c in x.own):
             raise ValueError(f"step {s} of the prefix {prefix} is not fully forced")
     return steps
+
+
+def opening_prefix(rec: dict[str, Any]) -> int:
+    """The frames of a stem's opening: the tape up to the start of the pupil's second
+    turn (`spans[pupil_turns[1]]`)."""
+    turns = rec["pupil_turns"]
+    if len(turns) < 2:
+        raise ValueError(f"{rec['id']}: fewer than two pupil turns")
+    prefix = int(rec["base"]["spans"][int(turns[1])]["start"])
+    if prefix < 1:
+        raise ValueError(f"{rec['id']}: opening prefix {prefix} < 1")
+    return prefix
+
+
+def pick_opening(
+    records: Sequence[dict[str, Any]], stem: str | None
+) -> dict[str, Any] | None:
+    """The record `--opening` names: None for "none", the first for None."""
+    if stem == "none":
+        return None
+    if not records:
+        raise ValueError("no holdout records; --opening none serves without an opening")
+    if stem is None:
+        return records[0]
+    for rec in records:
+        if rec["id"] == stem:
+            return rec
+    raise ValueError(f"--opening {stem!r}: no such holdout stem")
+
+
+def holdout_path(render: str) -> pathlib.Path:
+    return pathlib.Path.cwd() / "runs" / render / "render" / "holdout.jsonl"
+
+
+def read_holdout(render: str) -> list[dict[str, Any]]:
+    path = holdout_path(render)
+    return [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+
+
+def resolve_opening(args: argparse.Namespace) -> tuple[str, list[StepInput]] | None:
+    """`--opening` as (stem, its forced steps), built once; None for `none`."""
+    if args.opening == "none":
+        return None
+    path = holdout_path(args.render)
+    try:
+        records = read_holdout(args.render)
+    except FileNotFoundError:
+        records = []
+    if not records:
+        raise ValueError(
+            f"{path}: holdout missing or empty; --opening none serves without it"
+        )
+    rec = pick_opening(records, args.opening)
+    if rec is None:
+        return None
+    return str(rec["id"]), context_steps(rec["base"], opening_prefix(rec))
 
 
 def _col(codes: Sequence[int], device: str) -> torch.Tensor:
@@ -324,10 +397,16 @@ class Engine:
         self.counters.typed += 1
         return ids
 
-    def force_prefix(self, steps: Sequence[StepInput]) -> list[int]:
+    def force_prefix(
+        self,
+        steps: Sequence[StepInput],
+        emit: Callable[[int, bytes | None], None] | None = None,
+    ) -> list[int]:
         """Teacher-forces tape frames: each step's pupil codes in, its text and all own
         codebooks forced. A frame's own codes, once out, are decoded and dropped so
-        Mimi's decoder stays in step. Returns the text ids as forced."""
+        Mimi's decoder stays in step; with `emit`, each step calls
+        `emit(text_id, pcm)`, pcm None before the delays are filled. Returns the text
+        ids as forced."""
         ids: list[int] = []
         for x in steps:
             if x.text is None or any(c is None for c in x.own):
@@ -337,8 +416,11 @@ class Engine:
                 forced=int(x.text),
                 own=_col([int(c) for c in x.own if c is not None], self.device),
             )
-            if codes is not None:
-                self.mimi.decode(codes)
+            if emit is None:
+                if codes is not None:
+                    self.mimi.decode(codes)
+            else:
+                emit(got, None if codes is None else self.decode(codes))
             ids.append(got)
         return ids
 
@@ -372,11 +454,16 @@ def pcm_frames_of(
 
 
 def replay(
-    args: argparse.Namespace, engine: Engine, spm: Any, out: pathlib.Path
+    args: argparse.Namespace,
+    engine: Engine,
+    spm: Any,
+    out: pathlib.Path,
+    opening: tuple[str, list[StepInput]] | None = None,
 ) -> None:
-    """The B1.5 probe's scenario on this checkpoint through the live path (D6)."""
-    path = pathlib.Path.cwd() / "runs" / args.render / "render" / "holdout.jsonl"
-    records = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    """The B1.5 probe's scenario on this checkpoint through the live path (D6).
+    `opening` is `resolve_opening(args)`, given with `--context opening`."""
+    path = holdout_path(args.render)
+    records = read_holdout(args.render)
     chosen = records[: args.replay]
     print(f"replay: {len(chosen)} of {len(records)} holdout dialogues from {path}")
 
@@ -405,11 +492,15 @@ def replay(
                 answer: list[int] = []
                 ended: bool | None = None
                 end_at: int | None = None
-                if args.context == "tutor":
-                    base = rec["base"]
-                    prefix = int(base["spans"][turns[1]]["start"])
-                    answer = engine.force_prefix(context_steps(base, prefix))
-                    spoken_1 = prefix
+                if args.context != "none":
+                    if opening is not None:
+                        forced_steps = opening[1]
+                    else:
+                        base = rec["base"]
+                        prefix = int(base["spans"][turns[1]]["start"])
+                        forced_steps = context_steps(base, prefix)
+                    answer = engine.force_prefix(forced_steps)
+                    spoken_1 = len(forced_steps)
                 else:
                     spoken_1 = len(first)
                     for pcm in first:
@@ -444,7 +535,7 @@ def replay(
                     "class": verdict,
                     "typed_words": words,
                     "first_answer": decode(content_ids(answer)),
-                    "forced": args.context == "tutor",
+                    "forced": args.context != "none",
                     "ended": ended,
                     "end_frame": end_at,
                     "emitted": decode(content_ids(free)),
@@ -460,8 +551,10 @@ def replay(
                     "burst_ms": c.burst.summary(),
                     "seconds": time.monotonic() - t0,
                 }
-                if args.context == "tutor":
+                if args.context != "none":
                     row["frames"]["prefix"] = spoken_1
+                if opening is not None:
+                    row["opening"] = opening[0]
                 rows.append(row)
                 print(
                     f"{rec['id']} {variant}: {verdict} in {row['seconds']:.0f}s | "
@@ -486,6 +579,7 @@ def replay(
             "seed": args.seed,
             "context": args.context,
             "after_end": args.after_end,
+            "opening": None if opening is None else opening[0],
             "temps": [args.temp, args.temp_text],
         },
     }
@@ -493,14 +587,26 @@ def replay(
     print("summary:", json.dumps(summary))
 
 
+class _OpeningStopped(Exception):
+    """Raised from the opening's emit when stop() came in: ends the forcing early."""
+
+
 class Session:
     """One websocket's model session. The worker thread steps the model; the asyncio
     side feeds it mic frames and typed turns and sends what it posts to `outbox`."""
 
     def __init__(
-        self, engine: Any, spm: Any, out: pathlib.Path, loop: asyncio.AbstractEventLoop
+        self,
+        engine: Any,
+        spm: Any,
+        out: pathlib.Path,
+        loop: asyncio.AbstractEventLoop,
+        opening: tuple[str, list[StepInput]] | None = None,
     ) -> None:
         self.engine, self.spm, self.loop = engine, spm, loop
+        self.opening = opening
+        self.opening_meta: dict[str, Any] | None = None
+        self.stopping = threading.Event()  # set by stop(); the opening polls it
         self.name = session_name()
         self.dir = out / self.name
         self.inbox: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -530,6 +636,7 @@ class Session:
             raise ValueError(f"the page sent a server-only kind {kind}")
 
     def stop(self) -> None:
+        self.stopping.set()
         self.inbox.put(("stop", None))
 
     # the worker side
@@ -540,6 +647,10 @@ class Session:
         try:
             self.engine.open()
             self.post(pack(READY, json.dumps({"session": self.name}).encode()))
+            if self.opening is not None:
+                self.play_opening(*self.opening)
+                if self.stopping.is_set():  # a stop mid-opening beats queued turns
+                    return
             while True:
                 cmd, arg = self.inbox.get()
                 if cmd == "stop":
@@ -560,19 +671,72 @@ class Session:
             finally:
                 self.post(None)
 
+    def play_opening(self, stem: str, steps: list[StepInput]) -> None:
+        """Forces the opening's frames, posting its voice and words as they come. A stop
+        ends the forcing at the next frame. The mic frames queued meanwhile are
+        dropped: the pupil was listening. A typed turn queued meanwhile is kept: the
+        hears ahead of it go here, it runs in the inbox loop, and handle_typed drops
+        the hears behind it."""
+        t0 = time.monotonic()
+        last = t0
+        played: list[int] = []
+        stopped = False
+
+        def emit(text: int, voice: bytes | None) -> None:
+            nonlocal last
+            now = time.monotonic()
+            c = self.engine.counters
+            self.steps.append(step_row(c.frames, "opening", text, 1000 * (now - last)))
+            played.append(text)
+            last = now
+            if voice is not None:
+                self.voiced.append(voice)
+                self.post(pack(AUDIO, voice))
+            if is_word(text):
+                self.post(pack(TEXT, piece_text(self.spm.IdToPiece(text)).encode()))
+            if c.frames % STATUS_EVERY == 0:
+                self.post(c.status())
+            if self.stopping.is_set():
+                raise _OpeningStopped
+
+        try:
+            self.engine.force_prefix(steps, emit=emit)
+        except _OpeningStopped:
+            stopped = True
+        finally:  # an error midway still leaves what was played in the record
+            self.opening_meta = {
+                "stem": stem,
+                "frames": len(played),
+                "stopped": stopped,
+                "text": str(self.spm.DecodeIds(content_ids(played))),
+                "seconds": time.monotonic() - t0,
+                # not counters.dropped: that is the live lag, the opening is no lag
+                "dropped": self.drop_hears(self.inbox.qsize(), live=False),
+                "pupil_wav_lead": "zeros; the model heard the tape pupil's opener",
+            }
+            print(
+                f"opening {stem}: {len(played)} frames in "
+                f"{self.opening_meta['seconds']:.1f}s"
+                f"{' (stopped)' if stopped else ''}, dropped "
+                f"{self.opening_meta['dropped']} mic frames",
+                flush=True,
+            )
+
     def queued_hears(self) -> int:
         """Mic frames waiting, not counting a typed turn or the stop."""
         with self.inbox.mutex:  # the asyncio side appends under the same lock
             return sum(1 for cmd, _ in self.inbox.queue if cmd == "hear")
 
-    def drop_hears(self, n: int) -> int:
-        """Drops up to `n` queued mic frames from the front, never a typed turn."""
+    def drop_hears(self, n: int, live: bool = True) -> int:
+        """Drops up to `n` queued mic frames from the front, never a typed turn. They
+        count in `counters.dropped` (the live lag) unless `live` is False."""
         dropped = 0
         q = self.inbox.queue  # the worker is the only consumer; a peek is atomic
         while dropped < n and q and q[0][0] == "hear":
             self.inbox.get_nowait()
             dropped += 1
-        self.engine.counters.dropped += dropped
+        if live:
+            self.engine.counters.dropped += dropped
         return dropped
 
     def handle_hear(self, frame: bytes) -> None:
@@ -626,7 +790,13 @@ class Session:
         with (self.dir / "steps.jsonl").open("w") as f:
             for row in self.steps:
                 f.write(json.dumps(row) + "\n")
-        sphn.write_wav(str(self.dir / "pupil.wav"), wav_of(self.heard), SAMPLE_RATE)
+        # the opening played frames with no mic: pupil.wav leads with as many zero
+        # frames, so both wavs share frame 0
+        lead = 0 if self.opening_meta is None else int(self.opening_meta["frames"])
+        if self.opening_meta is not None:
+            self.opening_meta["pupil_wav_lead_frames"] = lead
+        pupil = [ZERO_FRAME] * lead + self.heard
+        sphn.write_wav(str(self.dir / "pupil.wav"), wav_of(pupil), SAMPLE_RATE)
         sphn.write_wav(str(self.dir / "moshi.wav"), wav_of(self.voiced), SAMPLE_RATE)
         c = self.engine.counters
         said = [int(r["text"]) for r in self.steps if r["kind"] == "hear"]
@@ -634,8 +804,9 @@ class Session:
             "session": self.name,
             "frames": c.frames,
             "heard": c.heard,
-            "dropped": c.dropped,
+            "dropped": c.dropped,  # live lag; the opening's is in opening
             "typed": self.typed_log,
+            "opening": self.opening_meta,
             "hear_ms": c.hear.summary(),
             "burst_ms": c.burst.summary(),
             "transcript": str(self.spm.DecodeIds(content_ids(said))),
@@ -731,7 +902,13 @@ async def websocket(request: web.Request) -> web.StreamResponse:
     try:
         ws = web.WebSocketResponse(max_msg_size=4 * 2**20)
         await ws.prepare(request)
-        session = Session(s["engine"], s["spm"], s["out"], asyncio.get_running_loop())
+        session = Session(
+            s["engine"],
+            s["spm"],
+            s["out"],
+            asyncio.get_running_loop(),
+            opening=s["opening"],
+        )
         s["open"].add(session)
         loop = asyncio.get_running_loop()
         worker = loop.run_in_executor(s["executor"], session.run)
@@ -772,6 +949,7 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
         "lock": asyncio.Lock(),
         "sessions": 0,
         "finishing": set(),
+        "opening": None,  # (stem, steps) every session starts with, or None
         "closing": False,  # set by shutdown(): /ws refuses new sessions
         "open": set(),  # sessions whose worker has started and not yet finished
         # ONE long-lived thread: moshi captures CUDA graphs per process on first use,
@@ -816,7 +994,11 @@ async def shutdown(
 
 
 async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
+    opening = resolve_opening(args)  # before the load: an unknown stem fails at once
     state = new_state(args.name, out)
+    state["opening"] = opening
+    if opening is not None:
+        print(f"engine: opening {opening[0]}, {len(opening[1])} frames", flush=True)
     runner = web.AppRunner(
         make_app(state), shutdown_timeout=5.0
     )  # sessions are finished before cleanup
@@ -867,10 +1049,12 @@ def main() -> None:
     out = pathlib.Path.cwd() / "runs" / args.name / "engine"
     out.mkdir(parents=True, exist_ok=True)
     if args.replay:
+        # before the load: an unknown stem fails at once
+        opening = resolve_opening(args) if args.context == "opening" else None
         base, mimi = load_model(args)
         engine = Engine(base, mimi, "cuda", args.temp, args.temp_text)
         engine.warmup()
-        replay(args, engine, base.spm, out)
+        replay(args, engine, base.spm, out, opening)
     else:
         asyncio.run(serve(args, out))
     print("engine job ok")

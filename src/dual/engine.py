@@ -48,7 +48,7 @@ BACKLOG_KEEP = 2
 SPECIALS = 4  # <unk> <s> </s> <pad>: no words
 STATUS_EVERY = 25  # frames between STATUS messages
 
-STEP_KINDS = ("hear", "typed", "gap")
+STEP_KINDS = ("hear", "typed", "gap", "opening")
 REPLAY_VARIANTS = ("typed", "spoken")
 
 Frame = tuple[int, tuple[int, ...], tuple[int, ...]]  # text, own 8, pupil 8
@@ -176,7 +176,8 @@ class Counters:
 def step_row(index: int, kind: str, text: int, ms: float) -> dict[str, Any]:
     """One line of steps.jsonl: what the model said at step `index` and what the
     step cost. `kind`: "hear" (a mic frame), "typed" (a forced token), "gap" (a
-    forced PAD). The audio of both sides is in the session's wavs."""
+    forced PAD), "opening" (a forced frame of the session's opening). The audio of
+    both sides is in the session's wavs."""
     if kind not in STEP_KINDS:
         raise ValueError(f"unknown step kind {kind!r}")
     return {"i": index, "kind": kind, "text": int(text), "ms": round(ms, 2)}

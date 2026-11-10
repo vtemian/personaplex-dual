@@ -78,11 +78,12 @@ PORT ?= 8998
 # ENGINE_RUN, not RUN: measure and sidebyside test `$(if $(RUN),...)` and must keep seeing it unset
 ENGINE_RUN ?= cons1-pp-l3
 # the engine job: serves until --max-minutes (180) or `sparks abort`; epoch 3 is the job's default
+# ARGS: --opening STEM|none (default: the first holdout stem, forced at the start of a session)
 engine:
-	sh scripts/submit.sh engine-$(NAME) engine --name engine-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --port $(PORT) $(ARGS)
+	sh scripts/submit.sh engine-$(NAME) engine --name engine-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --render $(RENDER) --port $(PORT) $(ARGS)
 
 # the offline check: all 13 holdout dialogues through the engine's own path, no network
-# ARGS: --temp X --temp-text X --seed N, --context tutor, --after-end, --eager, --bare
+# ARGS: --temp X --temp-text X --seed N, --context tutor|opening, --opening STEM|none, --after-end, --eager, --bare
 replay:
 	sh scripts/submit.sh replay-$(NAME) engine --name replay-$(NAME) --base $(BASE) --run $(ENGINE_RUN) --render $(RENDER) --replay 13 $(ARGS)
 

@@ -27,13 +27,19 @@ from dual.jobs.engine import (
     AFTER_END_LIMIT,
     CLIENT,
     DEP_Q,
+    ZERO_FRAME,
     Engine,
     Session,
     context_steps,
     make_app,
     new_state,
+    opening_prefix,
     parse_args,
     pcm_to_tensor,
+    pick_opening,
+    replay,
+    resolve_opening,
+    serve,
     shutdown,
     tensor_to_pcm,
     wait_for_end,
@@ -197,6 +203,16 @@ class FakeEngine:
             else bytes([self.counters.frames % 256]) * FRAME_BYTES
         )
         return text, voice
+
+    def force_prefix(self, steps, emit=None):
+        ids = []
+        for x in steps:
+            self.counters.frames += 1
+            ids.append(int(x.text))
+            if emit is not None:
+                voice = None if self.counters.frames < 2 else b"\x07" * FRAME_BYTES
+                emit(int(x.text), voice)
+        return ids
 
     def type(self, tokens):
         self.typed.append(list(tokens))
@@ -596,3 +612,414 @@ def test_wait_for_end():
     assert wait_for_end([]) is None
     assert wait_for_end([PAD, 9, PAD]) is None
     assert wait_for_end([PAD, 9, END, END, 5]) == 2
+
+
+def _record(stem="s1", prefix=4):
+    base = _base_row()
+    base["spans"] = [{"start": 0}, {"start": 1}, {"start": prefix}]
+    return {"id": stem, "pupil_turns": [0, 2], "base": base}
+
+
+def test_opening_flags_default_and_are_checked():
+    a = parse_args(["--name", "r"])
+    assert a.opening is None and a.context == "none"
+    a = parse_args(["--name", "r", "--replay", "13", "--context", "opening"])
+    assert a.context == "opening" and a.opening is None
+    a = parse_args(
+        ["--name", "r", "--replay", "1", "--context", "opening", "--opening", "dlg-1"]
+    )
+    assert a.opening == "dlg-1"
+    assert (
+        parse_args(["--name", "r", "--replay", "1", "--context", "tutor"]).opening
+        is None
+    )
+    assert parse_args(["--name", "r", "--opening", "none"]).opening == "none"
+    for bad in (
+        ["--context", "opening", "--after-end"],
+        ["--context", "opening", "--opening", "none"],
+        ["--context", "opening"],  # needs --replay
+        ["--replay", "2", "--opening", "b"],  # context none: an opening is unused
+        ["--replay", "2", "--context", "tutor", "--opening", "b"],
+    ):
+        with pytest.raises(SystemExit):
+            parse_args(["--name", "r", *bad])
+
+
+def test_opening_prefix():
+    assert opening_prefix(_record(prefix=4)) == 4
+    rec = _record()
+    rec["pupil_turns"] = [0]
+    with pytest.raises(ValueError, match="two pupil turns"):
+        opening_prefix(rec)
+    with pytest.raises(ValueError, match="prefix"):
+        opening_prefix(_record(prefix=0))
+
+
+def test_pick_opening():
+    recs = [_record("a"), _record("b", prefix=3)]
+    assert pick_opening(recs, "none") is None
+    assert pick_opening(recs, None) is recs[0]
+    assert pick_opening(recs, "b") is recs[1]
+    with pytest.raises(ValueError, match="nope"):
+        pick_opening(recs, "nope")
+
+
+def test_resolve_opening_reads_the_holdout_before_any_model(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = parse_args(["--name", "r"])
+    d = tmp_path / "runs" / "render-1" / "render"
+    d.mkdir(parents=True)
+    (d / "holdout.jsonl").write_text(
+        json.dumps(_record("a")) + "\n\n" + json.dumps(_record("b", prefix=3)) + "\n"
+    )
+    stem, steps = resolve_opening(args)
+    assert stem == "a" and steps == context_steps(_record("a")["base"], 4)
+    args = parse_args(["--name", "r", "--opening", "b"])
+    assert resolve_opening(args)[0] == "b"
+    with pytest.raises(ValueError, match="zzz"):
+        resolve_opening(parse_args(["--name", "r", "--opening", "zzz"]))
+    assert resolve_opening(parse_args(["--name", "r", "--opening", "none"])) is None
+
+
+def test_resolve_opening_none_does_not_need_the_holdout(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert resolve_opening(parse_args(["--name", "r", "--opening", "none"])) is None
+    with pytest.raises(ValueError, match=r"holdout\.jsonl.*--opening none"):
+        resolve_opening(parse_args(["--name", "r"]))
+    d = tmp_path / "runs" / "render-1" / "render"
+    d.mkdir(parents=True)
+    (d / "holdout.jsonl").write_text("\n")
+    with pytest.raises(ValueError, match=r"holdout\.jsonl.*--opening none"):
+        resolve_opening(parse_args(["--name", "r"]))
+    with pytest.raises(ValueError, match="--opening none"):
+        pick_opening([], None)
+
+
+def test_force_prefix_emit_gets_one_call_a_step(monkeypatch):
+    e = _engine(monkeypatch)
+    steps = context_steps(_base_row(), 4)
+    calls: list[tuple[int, bytes | None]] = []
+    e.open()
+    ids = e.force_prefix(steps, emit=lambda t, v: calls.append((t, v)))
+    assert ids == [20, 21, 22, 23]
+    assert [t for t, _ in calls] == ids
+    assert [v is None for _, v in calls] == [True, True, False, False]  # stub delay 2
+    assert all(len(v) == FRAME_BYTES for _, v in calls if v is not None)
+    e.close()
+
+
+def test_session_opens_with_the_forced_opening_then_hears(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng, spm = FakeEngine(), FakeSpm()
+        queued = eng.force_prefix
+
+        def force(steps, emit=None):
+            ids = queued(steps, emit)
+            for _ in range(3):  # the pupil's mic while the opening played
+                s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+            s.inbox.put(("type", "hi"))
+            s.inbox.put(("stop", None))  # after the opening, not a mid-opening stop
+            return ids
+
+        eng.force_prefix = force
+        steps = context_steps(_base_row(), 4)
+        s = Session(eng, spm, tmp_path, loop, opening=("s1", steps))
+        s.run()
+        msgs = _drain(loop, s.outbox)
+        kinds = [unpack(m)[0] for m in msgs if m is not None]
+        assert kinds[0] == READY
+        assert kinds[1:4] == [TEXT, AUDIO, TEXT]  # no voice before the second frame
+        assert kinds.count(TEXT) >= 4 and kinds.count(AUDIO) >= 3
+        assert len(s.voiced) == 3  # the opening's voiced frames
+        assert eng.counters.dropped == 0 and eng.counters.heard == 0  # not lag
+        assert eng.typed == [[10]]
+        s.save()
+        meta = json.loads((s.dir / "meta.json").read_text())
+        o = meta["opening"]
+        assert (o["stem"], o["frames"], o["dropped"]) == ("s1", 4, 3)
+        assert o["stopped"] is False
+        assert o["text"] == "w20 w21 w22 w23" and o["seconds"] >= 0
+        assert meta["transcript"] == ""  # the opening is not in the transcript
+        rows = [
+            json.loads(ln) for ln in (s.dir / "steps.jsonl").read_text().splitlines()
+        ]
+        assert [r["kind"] for r in rows][:4] == ["opening"] * 4
+        assert [r["i"] for r in rows][:4] == [1, 2, 3, 4]
+        assert rows[4]["kind"] == "typed"
+    finally:
+        loop.close()
+
+
+def test_session_without_an_opening_has_a_null_opening(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        s = Session(FakeEngine(), FakeSpm(), tmp_path, loop)
+        s.stop()
+        s.run()
+        s.save()
+        assert json.loads((s.dir / "meta.json").read_text())["opening"] is None
+    finally:
+        loop.close()
+
+
+def _opening_session(tmp_path, loop, n=6, hook=None):
+    """A Session whose opening has `n` frames; `hook(k)` runs before step k emits."""
+    eng = FakeEngine()
+    real = eng.force_prefix
+    count = 0
+
+    def force(steps, emit=None):
+        def counted(t, v):
+            nonlocal count
+            count += 1
+            if hook is not None:
+                hook(count)
+            emit(t, v)
+
+        return real(steps, emit=counted)
+
+    eng.force_prefix = force
+    steps = context_steps(_base_row(frames=n), n)
+    return eng, Session(eng, FakeSpm(), tmp_path, loop, opening=("s1", steps))
+
+
+def _queue_stop(s):
+    """The stop command alone, without the event stop() sets."""
+    s.inbox.put(("stop", None))
+
+
+def test_stop_during_the_opening_ends_it_early_and_saves(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng, s = _opening_session(
+            tmp_path, loop, hook=lambda k: s.stop() if k == 2 else None
+        )
+        s.run()
+        assert eng.counters.frames == 2 and s.error is None
+        s.save()
+        meta = json.loads((s.dir / "meta.json").read_text())
+        o = meta["opening"]
+        assert o["frames"] == 2 and o["stopped"] is True
+        assert o["text"] == "w20 w21" and o["pupil_wav_lead_frames"] == 2
+        assert meta["error"] is None
+        assert _drain(loop, s.outbox)[-1] is None
+    finally:
+        loop.close()
+
+
+def test_pupil_wav_leads_with_the_opening_frames(tmp_path):
+    import sphn
+
+    loop = asyncio.new_event_loop()
+    try:
+        _eng, s = _opening_session(tmp_path, loop, n=4)
+        _queue_stop(s)
+        s.run()
+        # one mic frame heard after the opening, so the lead is what is measured
+        s.heard.append(b"\x01\x00" * 1920)
+        s.save()
+        pupil, _ = sphn.read(str(s.dir / "pupil.wav"))
+        moshi, _ = sphn.read(str(s.dir / "moshi.wav"))
+        assert pupil.shape[-1] == 5 * 1920  # 4 lead frames, then the heard one
+        assert not pupil[..., : 4 * 1920].any() and pupil[..., 4 * 1920 :].any()
+        o = json.loads((s.dir / "meta.json").read_text())["opening"]
+        assert o["pupil_wav_lead_frames"] == 4 and moshi.shape[-1] == 3 * 1920
+    finally:
+        loop.close()
+
+
+def test_typed_turn_queued_mid_opening_runs_and_no_stale_mic_is_heard(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+
+        def queue_mid(k):
+            if k == 2:
+                for _ in range(3):  # ahead of the typed turn: dropped at the end
+                    s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+                s.inbox.put(("type", "hi"))
+                for _ in range(2):  # behind it: dropped by handle_typed
+                    s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+                _queue_stop(s)
+
+        eng, s = _opening_session(tmp_path, loop, hook=queue_mid)
+        s.run()
+        assert eng.typed == [[10]]
+        assert eng.counters.heard == 0 and s.heard == []
+        # the 3 the opening dropped are in meta["opening"], not the live lag counter
+        assert s.opening_meta["dropped"] == 3 and eng.counters.dropped == 2
+    finally:
+        loop.close()
+
+
+def test_opening_error_midway_still_records_what_was_played(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+
+        def boom(k):
+            if k == 3:
+                raise RuntimeError("gpu fell over")
+
+        _eng, s = _opening_session(tmp_path, loop, hook=boom)
+        s.run()
+        assert "gpu fell over" in (s.error or "")
+        assert s.opening_meta["frames"] == 2 and s.opening_meta["stopped"] is False
+        assert s.opening_meta["stem"] == "s1"
+    finally:
+        loop.close()
+
+
+def test_opening_posts_status_every_status_every_frames(tmp_path, monkeypatch):
+    monkeypatch.setattr("dual.jobs.engine.STATUS_EVERY", 2)
+    loop = asyncio.new_event_loop()
+    try:
+        _eng, s = _opening_session(tmp_path, loop, n=4)
+        _queue_stop(s)
+        s.run()
+        kinds = [unpack(m)[0] for m in _drain(loop, s.outbox) if m is not None]
+        assert kinds.count(STATUS) == 2
+    finally:
+        loop.close()
+
+
+def test_force_prefix_without_emit_uses_mimi_decode_only(monkeypatch):
+    e = _engine(monkeypatch)
+    calls = []
+    monkeypatch.setattr(e, "decode", lambda codes: calls.append(codes))
+    e.open()
+    e.force_prefix(context_steps(_base_row(), 4))
+    assert calls == []  # the plain path never touches Engine.decode
+    e.close()
+
+
+def test_serve_resolves_the_opening_before_the_model_loads(tmp_path, monkeypatch):
+    order: list[str] = []
+
+    def fake_resolve(args):
+        order.append("resolve")
+
+    def fake_load(args):
+        order.append("load")
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr("dual.jobs.engine.resolve_opening", fake_resolve)
+    monkeypatch.setattr("dual.jobs.engine.load_model", fake_load)
+    import socket
+
+    with socket.socket() as sock:  # a free port; --port 0 is refused by the parser
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    args = parse_args(["--name", "r", "--port", str(port), "--host", "127.0.0.1"])
+    with pytest.raises(RuntimeError, match="stop here"):
+        asyncio.run(serve(args, tmp_path))
+    assert order == ["resolve", "load"]
+
+
+def test_stop_mid_opening_wins_over_a_typed_turn_queued_before_it(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+
+        def type_then_stop(k):
+            if k == 2:
+                s.inbox.put(("type", "hi"))
+                s.stop()
+
+        eng, s = _opening_session(tmp_path, loop, hook=type_then_stop)
+        s.run()
+        assert eng.typed == [] and eng.counters.typed == 0
+        assert s.error is None and eng.closed == 1
+        assert _drain(loop, s.outbox)[-1] is None
+    finally:
+        loop.close()
+
+
+def test_opening_meta_says_the_pupil_lead_is_zeros(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        _eng, s = _opening_session(tmp_path, loop, n=2)
+        _queue_stop(s)
+        s.run()
+        s.save()
+        o = json.loads((s.dir / "meta.json").read_text())["opening"]
+        assert o["pupil_wav_lead"].startswith("zeros")
+    finally:
+        loop.close()
+
+
+def _holdout(tmp_path, monkeypatch, prefixes):
+    """A holdout of one record per (stem, prefix); the opening is spans[2] = prefix."""
+    rows = []
+    for stem, prefix in prefixes:
+        base = _base_row(frames=10)
+        base["spans"] = [{"start": 0}, {"start": 1}, {"start": prefix}]
+        typed = [30 + len(stem), 31] + [PAD] * GAP_FRAMES
+        rows.append(
+            {
+                "id": stem,
+                "base": base,
+                "pupil_turns": [0, 2],
+                "renderings": {
+                    "0": {"A": {"pupil": [[1] * CODEBOOKS]}},
+                    "2": {"typed": {"text": typed}, "A": {"pupil": [[2] * CODEBOOKS]}},
+                },
+            }
+        )
+    path = tmp_path / "runs" / "render-1" / "render" / "holdout.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "dual.jobs.engine.pcm_frames_of", lambda mimi, codes, device: [ZERO_FRAME]
+    )
+    monkeypatch.setattr("dual.jobs.engine.classify", lambda words, free, dec: "answer")
+    return rows
+
+
+def _recording_engine(monkeypatch):
+    e = _engine(monkeypatch)
+    forced: list[list] = []
+    real = e.force_prefix
+
+    def record(steps, emit=None):
+        forced.append(list(steps))
+        return real(steps, emit=emit)
+
+    e.force_prefix = record
+    return e, forced
+
+
+def _replay(tmp_path, monkeypatch, e, argv):
+    args = parse_args(["--name", "r", "--replay", "2", *argv])
+    opening = resolve_opening(args) if args.context == "opening" else None
+    out = tmp_path / "out"
+    out.mkdir()
+    replay(args, e, FakeSpm(), out, opening)
+    rows = [json.loads(ln) for ln in (out / "replay.jsonl").read_text().splitlines()]
+    return rows, json.loads((out / "summary.json").read_text())
+
+
+def test_replay_context_opening_forces_one_opening_in_every_stem(tmp_path, monkeypatch):
+    recs = _holdout(tmp_path, monkeypatch, [("a", 3), ("b", 5)])
+    e, forced = _recording_engine(monkeypatch)
+    rows, summary = _replay(
+        tmp_path, monkeypatch, e, ["--context", "opening", "--opening", "b"]
+    )
+    want = context_steps(recs[1]["base"], 5)
+    assert len(forced) == 4 and all(f == want for f in forced)  # 2 stems x 2 variants
+    assert len(rows) == 4
+    for row in rows:
+        assert row["forced"] is True and row["opening"] == "b"
+        assert row["frames"]["prefix"] == opening_prefix(recs[1]) == 5
+    assert {r["stem"] for r in rows} == {"a", "b"}
+    assert summary["variant_flags"]["opening"] == "b"
+
+
+def test_replay_context_tutor_gives_each_stem_its_own_prefix(tmp_path, monkeypatch):
+    recs = _holdout(tmp_path, monkeypatch, [("a", 3), ("b", 5)])
+    e, forced = _recording_engine(monkeypatch)
+    rows, summary = _replay(tmp_path, monkeypatch, e, ["--context", "tutor"])
+    assert forced[0] == forced[1] == context_steps(recs[0]["base"], 3)
+    assert forced[2] == forced[3] == context_steps(recs[1]["base"], 5)
+    assert [r["frames"]["prefix"] for r in rows] == [3, 3, 5, 5]
+    assert all(r["forced"] is True and "opening" not in r for r in rows)
+    assert summary["variant_flags"]["opening"] is None
