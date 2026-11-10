@@ -24,7 +24,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from dual.constants import FRAME_RATE
+from dual.constants import AUDIO_CARD, CODEBOOKS, FRAME_RATE, PAD, SILENCE, SINE
 from dual.frames import typed_segment
 from dual.probe_text import CLASSES
 
@@ -48,7 +48,11 @@ BACKLOG_KEEP = 2
 SPECIALS = 4  # <unk> <s> </s> <pad>: no words
 STATUS_EVERY = 25  # frames between STATUS messages
 
-STEP_KINDS = ("hear", "typed", "gap", "opening")
+# PersonaPlex's audio_silence_frame_cnt: int(0.5 * 12.5) frames either side of the
+# text prompt.
+PROMPT_SILENCE_FRAMES = int(0.5 * FRAME_RATE)
+
+STEP_KINDS = ("hear", "typed", "gap", "opening", "prompt")
 REPLAY_VARIANTS = ("typed", "spoken")
 
 Frame = tuple[int, tuple[int, ...], tuple[int, ...]]  # text, own 8, pupil 8
@@ -116,6 +120,57 @@ def burst(tokens: Sequence[int]) -> list[Frame]:
     return list(zip(seg.text, seg.own, seg.pupil, strict=True))
 
 
+def wrap_system(text: str) -> str:
+    """PersonaPlex's `wrap_with_system_tags`: `<system> text <system>`, unless the
+    text already starts and ends with `<system>`."""
+    cleaned = text.strip()
+    if not cleaned:
+        raise ValueError("a blank text prompt")
+    if cleaned.startswith("<system>") and cleaned.endswith("<system>"):
+        return cleaned
+    return f"<system> {cleaned} <system>"
+
+
+def check_voice(voice: Sequence[Sequence[int]]) -> None:
+    """Every voice frame is CODEBOOKS ints in 0..AUDIO_CARD-1, or ValueError."""
+    for i, codes in enumerate(voice):
+        if len(codes) != CODEBOOKS or not all(0 <= int(c) < AUDIO_CARD for c in codes):
+            raise ValueError(
+                f"voice frame {i}: need {CODEBOOKS} codes in 0..{AUDIO_CARD - 1}"
+            )
+
+
+def system_prompt_frames(
+    voice: Sequence[Sequence[int]],
+    text: Sequence[int],
+    silence: int = PROMPT_SILENCE_FRAMES,
+) -> list[Frame]:
+    """PersonaPlex's session prompt (LMGen.step_system_prompts) frame by frame: the
+    voice's codes as moshi's own audio on text PAD, `silence` frames, one text token a
+    frame, `silence` frames; the pupil stream is SINE throughout."""
+    if not voice and not text:
+        raise ValueError("an empty prompt: no voice frames and no text tokens")
+    check_voice(voice)
+    frames: list[Frame] = [(PAD, tuple(int(c) for c in codes), SINE) for codes in voice]
+    frames.extend([(PAD, SILENCE, SINE)] * silence)
+    frames.extend((int(t), SILENCE, SINE) for t in text)
+    frames.extend([(PAD, SILENCE, SINE)] * silence)
+    return frames
+
+
+def prompt_steps(frames: Sequence[Frame]) -> list[Frame]:
+    """The N per-step inputs for moshi 0.2.13 from the N undelayed prompt frames L.
+    moshi 0.2.13 writes the hooked text token and all 8 replace tokens at slot
+    offset+1 with no per-codebook delay, so they must come already delayed.
+    PersonaPlex's slot p holds text[p], own cb0[p], own cb1-7[p-1]; its frame 0 is
+    overwritten by initial tokens and never seen, so it is dropped: step s is
+    (L[s+1].text, L[s+1] cb0 + L[s] cb1-7, pupil), L[N] being PAD/SILENCE/SINE.
+    Step N-1 forces slot N to PAD/SILENCE where PersonaPlex samples it: the one known
+    difference. Slot 1's cb1-7 become initial tokens via moshi's is_init, as there."""
+    rest = [*frames[1:], (PAD, SILENCE, SINE)]
+    return [(r[0], (r[1][0], *frames[s][1][1:]), r[2]) for s, r in enumerate(rest)]
+
+
 def is_word(token: int) -> bool:
     return token >= SPECIALS
 
@@ -176,7 +231,8 @@ class Counters:
 def step_row(index: int, kind: str, text: int, ms: float) -> dict[str, Any]:
     """One line of steps.jsonl: what the model said at step `index` and what the
     step cost. `kind`: "hear" (a mic frame), "typed" (a forced token), "gap" (a
-    forced PAD), "opening" (a forced frame of the session's opening). The audio of
+    forced PAD), "opening" (a forced frame of the session's opening), "prompt" (a forced
+    frame of the voice/text system prompt). The audio of
     both sides is in the session's wavs."""
     if kind not in STEP_KINDS:
         raise ValueError(f"unknown step kind {kind!r}")
@@ -198,3 +254,17 @@ def replay_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
             raise ValueError(f"unknown replay variant {r['variant']!r}")
         classes[r["variant"]][r["class"]] += 1
     return {"dialogues": len({r["stem"] for r in rows}), "classes": classes}
+
+
+def first_class_counts(rows: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Per variant, the classes of the rows' `first_class` (turn 1's reply), skipping
+    rows where it is None (a forced context)."""
+    counts: dict[str, dict[str, int]] = {
+        v: dict.fromkeys(CLASSES, 0) for v in REPLAY_VARIANTS
+    }
+    for r in rows:
+        if r["variant"] not in counts:
+            raise ValueError(f"unknown replay variant {r['variant']!r}")
+        if r.get("first_class") is not None:
+            counts[r["variant"]][r["first_class"]] += 1
+    return counts

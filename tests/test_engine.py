@@ -10,6 +10,7 @@ from dual.engine import (
     FRAME_SAMPLES,
     KINDS,
     MAX_BACKLOG,
+    PROMPT_SILENCE_FRAMES,
     READY,
     REPLAY_VARIANTS,
     STATUS,
@@ -20,15 +21,19 @@ from dual.engine import (
     PcmBuffer,
     Timing,
     burst,
+    first_class_counts,
     is_word,
     pack,
     piece_text,
+    prompt_steps,
     replay_summary,
     session_name,
     step_row,
+    system_prompt_frames,
     trim_backlog,
     typed_words,
     unpack,
+    wrap_system,
 )
 
 
@@ -176,3 +181,84 @@ def test_replay_summary_counts_classes_per_variant():
     assert got["classes"]["spoken"] == {"answer": 1, "echo": 0, "ignore": 1}
     with pytest.raises(ValueError, match="variant"):
         replay_summary([{"stem": "a", "variant": "sung", "class": "answer"}])
+
+
+def test_wrap_system_is_personaplexs():
+    assert wrap_system("  hi there ") == "<system> hi there <system>"
+    assert wrap_system("<system> hi <system>\n") == "<system> hi <system>"
+    assert wrap_system("<system> hi") == "<system> <system> hi <system>"
+    for blank in ("", "  \n"):
+        with pytest.raises(ValueError, match="blank"):
+            wrap_system(blank)
+
+
+def test_system_prompt_frames_order():
+    voice = [[i] * 8 for i in (5, 6)]
+    got = system_prompt_frames(voice, [40, 41, 42])
+    sil = PROMPT_SILENCE_FRAMES
+    assert sil == 6
+    want = (
+        [(PAD, (5,) * 8, SINE), (PAD, (6,) * 8, SINE)]
+        + [(PAD, SILENCE, SINE)] * sil
+        + [(t, SILENCE, SINE) for t in (40, 41, 42)]
+        + [(PAD, SILENCE, SINE)] * sil
+    )
+    assert got == want
+    assert len(system_prompt_frames(voice, [40], silence=2)) == 2 + 2 + 1 + 2
+
+
+def test_system_prompt_frames_voice_or_text_alone_keep_both_silences():
+    text_only = system_prompt_frames([], [40])
+    assert (
+        text_only
+        == [(PAD, SILENCE, SINE)] * 6
+        + [(40, SILENCE, SINE)]
+        + [(PAD, SILENCE, SINE)] * 6
+    )
+    voice_only = system_prompt_frames([[1] * 8], [])
+    assert len(voice_only) == 1 + 6 + 6
+    assert voice_only[0] == (PAD, (1,) * 8, SINE)
+
+
+def test_system_prompt_frames_refuse_bad_input():
+    with pytest.raises(ValueError, match="empty"):
+        system_prompt_frames([], [])
+    with pytest.raises(ValueError, match="8"):
+        system_prompt_frames([[1] * 7], [])
+    with pytest.raises(ValueError, match="2047"):
+        system_prompt_frames([[2048] + [0] * 7], [])
+    with pytest.raises(ValueError, match="2047"):
+        system_prompt_frames([[-1] + [0] * 7], [])
+
+
+def test_prompt_is_a_step_kind():
+    assert step_row(3, "prompt", 40, 1.0)["kind"] == "prompt"
+
+
+def test_first_class_counts_skip_none():
+    rows = [
+        {"variant": "typed", "first_class": "answer"},
+        {"variant": "typed", "first_class": None},
+        {"variant": "spoken", "first_class": "echo"},
+        {"variant": "spoken", "first_class": "echo"},
+    ]
+    got = first_class_counts(rows)
+    assert got["typed"] == {"answer": 1, "echo": 0, "ignore": 0}
+    assert got["spoken"] == {"answer": 0, "echo": 2, "ignore": 0}
+    with pytest.raises(ValueError, match="variant"):
+        first_class_counts([{"variant": "sung", "first_class": "echo"}])
+
+
+def test_prompt_steps_use_moshis_delayed_layout():
+    n = 4
+    frames = [
+        (10 + i, (i * 10 + 1, *tuple(i * 10 + k for k in range(2, 9))), SINE)
+        for i in range(n)
+    ]
+    steps = prompt_steps(frames)
+    assert len(steps) == n
+    for s in range(n - 1):
+        assert steps[s][0] == frames[s + 1][0]
+        assert steps[s][1] == (frames[s + 1][1][0], *frames[s][1][1:])
+        assert steps[s][2] == SINE
+    assert steps[-1] == (PAD, (SILENCE[0], *frames[-1][1][1:]), SINE)
