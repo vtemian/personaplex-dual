@@ -32,8 +32,11 @@ from dual.jobs.engine import (
     context_steps,
     make_app,
     new_state,
+    opening_prefix,
     parse_args,
     pcm_to_tensor,
+    pick_opening,
+    resolve_opening,
     shutdown,
     tensor_to_pcm,
     wait_for_end,
@@ -197,6 +200,16 @@ class FakeEngine:
             else bytes([self.counters.frames % 256]) * FRAME_BYTES
         )
         return text, voice
+
+    def force_prefix(self, steps, emit=None):
+        ids = []
+        for x in steps:
+            self.counters.frames += 1
+            ids.append(int(x.text))
+            if emit is not None:
+                voice = None if self.counters.frames < 2 else b"\x07" * FRAME_BYTES
+                emit(int(x.text), voice)
+        return ids
 
     def type(self, tokens):
         self.typed.append(list(tokens))
@@ -596,3 +609,135 @@ def test_wait_for_end():
     assert wait_for_end([]) is None
     assert wait_for_end([PAD, 9, PAD]) is None
     assert wait_for_end([PAD, 9, END, END, 5]) == 2
+
+
+def _record(stem="s1", prefix=4):
+    base = _base_row()
+    base["spans"] = [{"start": 0}, {"start": 1}, {"start": prefix}]
+    return {"id": stem, "pupil_turns": [0, 2], "base": base}
+
+
+def test_opening_flags_default_and_are_checked():
+    a = parse_args(["--name", "r"])
+    assert a.opening is None and a.context == "none"
+    a = parse_args(["--name", "r", "--replay", "13", "--context", "opening"])
+    assert a.context == "opening" and a.opening is None
+    a = parse_args(["--name", "r", "--context", "opening", "--opening", "dlg-1"])
+    assert a.opening == "dlg-1"
+    assert parse_args(["--name", "r", "--opening", "none"]).opening == "none"
+    for bad in (
+        ["--context", "opening", "--after-end"],
+        ["--context", "opening", "--opening", "none"],
+    ):
+        with pytest.raises(SystemExit):
+            parse_args(["--name", "r", *bad])
+
+
+def test_opening_prefix():
+    assert opening_prefix(_record(prefix=4)) == 4
+    rec = _record()
+    rec["pupil_turns"] = [0]
+    with pytest.raises(ValueError, match="two pupil turns"):
+        opening_prefix(rec)
+    with pytest.raises(ValueError, match="prefix"):
+        opening_prefix(_record(prefix=0))
+
+
+def test_pick_opening():
+    recs = [_record("a"), _record("b", prefix=3)]
+    assert pick_opening(recs, "none") is None
+    assert pick_opening(recs, None) is recs[0]
+    assert pick_opening(recs, "b") is recs[1]
+    with pytest.raises(ValueError, match="nope"):
+        pick_opening(recs, "nope")
+
+
+def test_resolve_opening_reads_the_holdout_before_any_model(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = parse_args(["--name", "r"])
+    d = tmp_path / "runs" / "render-1" / "render"
+    d.mkdir(parents=True)
+    (d / "holdout.jsonl").write_text(
+        json.dumps(_record("a")) + "\n\n" + json.dumps(_record("b", prefix=3)) + "\n"
+    )
+    stem, steps = resolve_opening(args)
+    assert stem == "a" and steps == context_steps(_record("a")["base"], 4)
+    args = parse_args(["--name", "r", "--opening", "b"])
+    assert resolve_opening(args)[0] == "b"
+    with pytest.raises(ValueError, match="zzz"):
+        resolve_opening(parse_args(["--name", "r", "--opening", "zzz"]))
+    assert resolve_opening(parse_args(["--name", "r", "--opening", "none"])) is None
+
+
+def test_resolve_opening_none_does_not_need_the_holdout(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert resolve_opening(parse_args(["--name", "r", "--opening", "none"])) is None
+    with pytest.raises(FileNotFoundError):
+        resolve_opening(parse_args(["--name", "r"]))
+
+
+def test_force_prefix_emit_gets_one_call_a_step(monkeypatch):
+    e = _engine(monkeypatch)
+    steps = context_steps(_base_row(), 4)
+    calls: list[tuple[int, bytes | None]] = []
+    e.open()
+    ids = e.force_prefix(steps, emit=lambda t, v: calls.append((t, v)))
+    assert ids == [20, 21, 22, 23]
+    assert [t for t, _ in calls] == ids
+    assert [v is None for _, v in calls] == [True, True, False, False]  # stub delay 2
+    assert all(len(v) == FRAME_BYTES for _, v in calls if v is not None)
+    e.close()
+
+
+def test_session_opens_with_the_forced_opening_then_hears(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng, spm = FakeEngine(), FakeSpm()
+        queued = eng.force_prefix
+
+        def force(steps, emit=None):
+            ids = queued(steps, emit)
+            for _ in range(3):  # the pupil's mic while the opening played
+                s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+            s.inbox.put(("type", "hi"))
+            s.stop()
+            return ids
+
+        eng.force_prefix = force
+        steps = context_steps(_base_row(), 4)
+        s = Session(eng, spm, tmp_path, loop, opening=("s1", steps))
+        s.run()
+        msgs = _drain(loop, s.outbox)
+        kinds = [unpack(m)[0] for m in msgs if m is not None]
+        assert kinds[0] == READY
+        assert kinds[1:4] == [TEXT, AUDIO, TEXT]  # no voice before the second frame
+        assert kinds.count(TEXT) >= 4 and kinds.count(AUDIO) >= 3
+        assert len(s.voiced) == 3  # the opening's voiced frames
+        assert eng.counters.dropped == 3 and eng.counters.heard == 0
+        assert eng.typed == [[10]]
+        s.save()
+        meta = json.loads((s.dir / "meta.json").read_text())
+        o = meta["opening"]
+        assert (o["stem"], o["frames"], o["dropped"]) == ("s1", 4, 3)
+        assert o["text"] == "w20 w21 w22 w23" and o["seconds"] >= 0
+        assert meta["transcript"] == ""  # the opening is not in the transcript
+        rows = [
+            json.loads(ln) for ln in (s.dir / "steps.jsonl").read_text().splitlines()
+        ]
+        assert [r["kind"] for r in rows][:4] == ["opening"] * 4
+        assert [r["i"] for r in rows][:4] == [1, 2, 3, 4]
+        assert rows[4]["kind"] == "typed"
+    finally:
+        loop.close()
+
+
+def test_session_without_an_opening_has_a_null_opening(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        s = Session(FakeEngine(), FakeSpm(), tmp_path, loop)
+        s.stop()
+        s.run()
+        s.save()
+        assert json.loads((s.dir / "meta.json").read_text())["opening"] is None
+    finally:
+        loop.close()

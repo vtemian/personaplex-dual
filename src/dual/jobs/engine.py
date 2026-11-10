@@ -34,7 +34,7 @@ import queue
 import signal
 import socket
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -107,14 +107,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=0, help="torch seed per replay session")
     p.add_argument(
         "--context",
-        choices=("none", "tutor"),
+        choices=("none", "tutor", "opening"),
         default="none",
-        help="tutor: teacher-force the tape history instead of turn 1 + a free run",
+        help="tutor: teacher-force the tape history instead of turn 1 + a free run; "
+        "opening: force the --opening stem's opening in every stem",
+    )
+    p.add_argument(
+        "--opening",
+        default=None,
+        metavar="STEM|none",
+        help="the holdout stem whose opening is forced at the start of a session "
+        "(default: the first record; none: no opening)",
     )
     p.add_argument(
         "--after-end",
         action="store_true",
-        help="replay: wait up to 600 frames for </s> after turn 1 (not with tutor)",
+        help="replay: wait up to 600 frames for </s> after turn 1 (context none only)",
     )
     p.add_argument("--mem-cap-gib", type=float, default=MEM_CAP_GIB)
     args = p.parse_args(argv)
@@ -128,8 +136,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("temperatures must be >= 0")
     if args.seed < 0:
         p.error("--seed must be >= 0")
-    if args.context == "tutor" and args.after_end:
-        p.error("--after-end is for the empty-session flow, not --context tutor")
+    if args.context != "none" and args.after_end:
+        p.error(
+            "--after-end is for the empty-session flow, not --context " + args.context
+        )
+    if args.context == "opening" and args.opening == "none":
+        p.error("--context opening needs an opening, not --opening none")
     return args
 
 
@@ -151,6 +163,47 @@ def context_steps(base: dict[str, Any], prefix: int) -> list[StepInput]:
         if x.text is None or any(c is None for c in x.own):
             raise ValueError(f"step {s} of the prefix {prefix} is not fully forced")
     return steps
+
+
+def opening_prefix(rec: dict[str, Any]) -> int:
+    """The frames of a stem's opening: the tape up to the start of the tutor's second
+    turn after the pupil's opener (`spans[pupil_turns[1]]`)."""
+    turns = rec["pupil_turns"]
+    if len(turns) < 2:
+        raise ValueError(f"{rec['id']}: fewer than two pupil turns")
+    prefix = int(rec["base"]["spans"][int(turns[1])]["start"])
+    if prefix < 1:
+        raise ValueError(f"{rec['id']}: opening prefix {prefix} < 1")
+    return prefix
+
+
+def pick_opening(
+    records: Sequence[dict[str, Any]], stem: str | None
+) -> dict[str, Any] | None:
+    """The record `--opening` names: None for "none", the first for None."""
+    if stem == "none":
+        return None
+    if stem is None:
+        return records[0]
+    for rec in records:
+        if rec["id"] == stem:
+            return rec
+    raise ValueError(f"--opening {stem!r}: no such holdout stem")
+
+
+def read_holdout(render: str) -> list[dict[str, Any]]:
+    path = pathlib.Path.cwd() / "runs" / render / "render" / "holdout.jsonl"
+    return [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+
+
+def resolve_opening(args: argparse.Namespace) -> tuple[str, list[StepInput]] | None:
+    """`--opening` as (stem, its forced steps), built once; None for `none`."""
+    if args.opening == "none":
+        return None
+    rec = pick_opening(read_holdout(args.render), args.opening)
+    if rec is None:
+        return None
+    return str(rec["id"]), context_steps(rec["base"], opening_prefix(rec))
 
 
 def _col(codes: Sequence[int], device: str) -> torch.Tensor:
@@ -324,10 +377,16 @@ class Engine:
         self.counters.typed += 1
         return ids
 
-    def force_prefix(self, steps: Sequence[StepInput]) -> list[int]:
+    def force_prefix(
+        self,
+        steps: Sequence[StepInput],
+        emit: Callable[[int, bytes | None], None] | None = None,
+    ) -> list[int]:
         """Teacher-forces tape frames: each step's pupil codes in, its text and all own
         codebooks forced. A frame's own codes, once out, are decoded and dropped so
-        Mimi's decoder stays in step. Returns the text ids as forced."""
+        Mimi's decoder stays in step; with `emit`, each step calls
+        `emit(text_id, pcm)`, pcm None before the delays are filled. Returns the text
+        ids as forced."""
         ids: list[int] = []
         for x in steps:
             if x.text is None or any(c is None for c in x.own):
@@ -337,9 +396,10 @@ class Engine:
                 forced=int(x.text),
                 own=_col([int(c) for c in x.own if c is not None], self.device),
             )
-            if codes is not None:
-                self.mimi.decode(codes)
+            voice = None if codes is None else self.decode(codes)
             ids.append(got)
+            if emit is not None:
+                emit(got, voice)
         return ids
 
     def warmup(self) -> None:
@@ -376,9 +436,10 @@ def replay(
 ) -> None:
     """The B1.5 probe's scenario on this checkpoint through the live path (D6)."""
     path = pathlib.Path.cwd() / "runs" / args.render / "render" / "holdout.jsonl"
-    records = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    records = read_holdout(args.render)
     chosen = records[: args.replay]
     print(f"replay: {len(chosen)} of {len(records)} holdout dialogues from {path}")
+    opening = resolve_opening(args) if args.context == "opening" else None
 
     def decode(ids: list[int]) -> str:
         return str(spm.DecodeIds([int(i) for i in ids]))
@@ -405,11 +466,15 @@ def replay(
                 answer: list[int] = []
                 ended: bool | None = None
                 end_at: int | None = None
-                if args.context == "tutor":
-                    base = rec["base"]
-                    prefix = int(base["spans"][turns[1]]["start"])
-                    answer = engine.force_prefix(context_steps(base, prefix))
-                    spoken_1 = prefix
+                if args.context != "none":
+                    if opening is not None:
+                        forced_steps = opening[1]
+                    else:
+                        base = rec["base"]
+                        prefix = int(base["spans"][turns[1]]["start"])
+                        forced_steps = context_steps(base, prefix)
+                    answer = engine.force_prefix(forced_steps)
+                    spoken_1 = len(forced_steps)
                 else:
                     spoken_1 = len(first)
                     for pcm in first:
@@ -444,7 +509,7 @@ def replay(
                     "class": verdict,
                     "typed_words": words,
                     "first_answer": decode(content_ids(answer)),
-                    "forced": args.context == "tutor",
+                    "forced": args.context != "none",
                     "ended": ended,
                     "end_frame": end_at,
                     "emitted": decode(content_ids(free)),
@@ -460,8 +525,10 @@ def replay(
                     "burst_ms": c.burst.summary(),
                     "seconds": time.monotonic() - t0,
                 }
-                if args.context == "tutor":
+                if args.context != "none":
                     row["frames"]["prefix"] = spoken_1
+                if opening is not None:
+                    row["opening"] = opening[0]
                 rows.append(row)
                 print(
                     f"{rec['id']} {variant}: {verdict} in {row['seconds']:.0f}s | "
@@ -486,6 +553,7 @@ def replay(
             "seed": args.seed,
             "context": args.context,
             "after_end": args.after_end,
+            "opening": None if opening is None else opening[0],
             "temps": [args.temp, args.temp_text],
         },
     }
@@ -498,9 +566,16 @@ class Session:
     side feeds it mic frames and typed turns and sends what it posts to `outbox`."""
 
     def __init__(
-        self, engine: Any, spm: Any, out: pathlib.Path, loop: asyncio.AbstractEventLoop
+        self,
+        engine: Any,
+        spm: Any,
+        out: pathlib.Path,
+        loop: asyncio.AbstractEventLoop,
+        opening: tuple[str, list[StepInput]] | None = None,
     ) -> None:
         self.engine, self.spm, self.loop = engine, spm, loop
+        self.opening = opening
+        self.opening_meta: dict[str, Any] | None = None
         self.name = session_name()
         self.dir = out / self.name
         self.inbox: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -540,6 +615,8 @@ class Session:
         try:
             self.engine.open()
             self.post(pack(READY, json.dumps({"session": self.name}).encode()))
+            if self.opening is not None:
+                self.play_opening(*self.opening)
             while True:
                 cmd, arg = self.inbox.get()
                 if cmd == "stop":
@@ -559,6 +636,41 @@ class Session:
                 print("session close error:", repr(e), flush=True)
             finally:
                 self.post(None)
+
+    def play_opening(self, stem: str, steps: list[StepInput]) -> None:
+        """Forces the opening's frames, posting its voice and words as they come. The
+        mic frames queued meanwhile are dropped: the pupil was listening."""
+        t0 = time.monotonic()
+        last = t0
+
+        def emit(text: int, voice: bytes | None) -> None:
+            nonlocal last
+            now = time.monotonic()
+            row = step_row(
+                self.engine.counters.frames, "hear", text, 1000 * (now - last)
+            )
+            self.steps.append({**row, "kind": "opening"})  # STEP_KINDS lacks "opening"
+            last = now
+            if voice is not None:
+                self.voiced.append(voice)
+                self.post(pack(AUDIO, voice))
+            if is_word(text):
+                self.post(pack(TEXT, piece_text(self.spm.IdToPiece(text)).encode()))
+
+        ids = self.engine.force_prefix(steps, emit=emit)
+        self.opening_meta = {
+            "stem": stem,
+            "frames": len(ids),
+            "text": str(self.spm.DecodeIds(content_ids(ids))),
+            "seconds": time.monotonic() - t0,
+            "dropped": self.drop_hears(self.inbox.qsize()),
+        }
+        print(
+            f"opening {stem}: {len(ids)} frames in "
+            f"{self.opening_meta['seconds']:.1f}s, dropped "
+            f"{self.opening_meta['dropped']} mic frames",
+            flush=True,
+        )
 
     def queued_hears(self) -> int:
         """Mic frames waiting, not counting a typed turn or the stop."""
@@ -636,6 +748,7 @@ class Session:
             "heard": c.heard,
             "dropped": c.dropped,
             "typed": self.typed_log,
+            "opening": self.opening_meta,
             "hear_ms": c.hear.summary(),
             "burst_ms": c.burst.summary(),
             "transcript": str(self.spm.DecodeIds(content_ids(said))),
@@ -731,7 +844,13 @@ async def websocket(request: web.Request) -> web.StreamResponse:
     try:
         ws = web.WebSocketResponse(max_msg_size=4 * 2**20)
         await ws.prepare(request)
-        session = Session(s["engine"], s["spm"], s["out"], asyncio.get_running_loop())
+        session = Session(
+            s["engine"],
+            s["spm"],
+            s["out"],
+            asyncio.get_running_loop(),
+            opening=s["opening"],
+        )
         s["open"].add(session)
         loop = asyncio.get_running_loop()
         worker = loop.run_in_executor(s["executor"], session.run)
@@ -772,6 +891,7 @@ def new_state(name: str, out: pathlib.Path) -> dict[str, Any]:
         "lock": asyncio.Lock(),
         "sessions": 0,
         "finishing": set(),
+        "opening": None,  # (stem, steps) every session starts with, or None
         "closing": False,  # set by shutdown(): /ws refuses new sessions
         "open": set(),  # sessions whose worker has started and not yet finished
         # ONE long-lived thread: moshi captures CUDA graphs per process on first use,
@@ -816,7 +936,11 @@ async def shutdown(
 
 
 async def serve(args: argparse.Namespace, out: pathlib.Path) -> None:
+    opening = resolve_opening(args)  # before the load: an unknown stem fails at once
     state = new_state(args.name, out)
+    state["opening"] = opening
+    if opening is not None:
+        print(f"engine: opening {opening[0]}, {len(opening[1])} frames", flush=True)
     runner = web.AppRunner(
         make_app(state), shutdown_timeout=5.0
     )  # sessions are finished before cleanup
