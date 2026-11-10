@@ -37,6 +37,7 @@ from dual.jobs.engine import (
     pcm_to_tensor,
     pick_opening,
     resolve_opening,
+    serve,
     shutdown,
     tensor_to_pcm,
     wait_for_end,
@@ -672,8 +673,15 @@ def test_resolve_opening_reads_the_holdout_before_any_model(tmp_path, monkeypatc
 def test_resolve_opening_none_does_not_need_the_holdout(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert resolve_opening(parse_args(["--name", "r", "--opening", "none"])) is None
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ValueError, match=r"holdout\.jsonl.*--opening none"):
         resolve_opening(parse_args(["--name", "r"]))
+    d = tmp_path / "runs" / "render-1" / "render"
+    d.mkdir(parents=True)
+    (d / "holdout.jsonl").write_text("\n")
+    with pytest.raises(ValueError, match=r"holdout\.jsonl.*--opening none"):
+        resolve_opening(parse_args(["--name", "r"]))
+    with pytest.raises(ValueError, match="--opening none"):
+        pick_opening([], None)
 
 
 def test_force_prefix_emit_gets_one_call_a_step(monkeypatch):
@@ -719,6 +727,7 @@ def test_session_opens_with_the_forced_opening_then_hears(tmp_path):
         meta = json.loads((s.dir / "meta.json").read_text())
         o = meta["opening"]
         assert (o["stem"], o["frames"], o["dropped"]) == ("s1", 4, 3)
+        assert o["stopped"] is False
         assert o["text"] == "w20 w21 w22 w23" and o["seconds"] >= 0
         assert meta["transcript"] == ""  # the opening is not in the transcript
         rows = [
@@ -741,3 +750,154 @@ def test_session_without_an_opening_has_a_null_opening(tmp_path):
         assert json.loads((s.dir / "meta.json").read_text())["opening"] is None
     finally:
         loop.close()
+
+
+def _opening_session(tmp_path, loop, n=6, hook=None):
+    """A Session whose opening has `n` frames; `hook(k)` runs before step k emits."""
+    eng = FakeEngine()
+    real = eng.force_prefix
+    count = 0
+
+    def force(steps, emit=None):
+        def counted(t, v):
+            nonlocal count
+            count += 1
+            if hook is not None:
+                hook(count)
+            emit(t, v)
+
+        return real(steps, emit=counted)
+
+    eng.force_prefix = force
+    steps = context_steps(_base_row(frames=n), n)
+    return eng, Session(eng, FakeSpm(), tmp_path, loop, opening=("s1", steps))
+
+
+def _queue_stop(s):
+    """The stop command alone, without the event stop() sets."""
+    s.inbox.put(("stop", None))
+
+
+def test_stop_during_the_opening_ends_it_early_and_saves(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+        eng, s = _opening_session(
+            tmp_path, loop, hook=lambda k: s.stop() if k == 2 else None
+        )
+        s.run()
+        assert eng.counters.frames == 2 and s.error is None
+        s.save()
+        meta = json.loads((s.dir / "meta.json").read_text())
+        o = meta["opening"]
+        assert o["frames"] == 2 and o["stopped"] is True
+        assert o["text"] == "w20 w21" and o["pupil_wav_lead_frames"] == 2
+        assert meta["error"] is None
+        assert _drain(loop, s.outbox)[-1] is None
+    finally:
+        loop.close()
+
+
+def test_pupil_wav_leads_with_the_opening_frames(tmp_path):
+    import sphn
+
+    loop = asyncio.new_event_loop()
+    try:
+        _eng, s = _opening_session(tmp_path, loop, n=4)
+        _queue_stop(s)
+        s.run()
+        # one mic frame heard after the opening, so the lead is what is measured
+        s.heard.append(b"\x01\x00" * 1920)
+        s.save()
+        pupil, _ = sphn.read(str(s.dir / "pupil.wav"))
+        moshi, _ = sphn.read(str(s.dir / "moshi.wav"))
+        assert pupil.shape[-1] == 5 * 1920  # 4 lead frames, then the heard one
+        assert not pupil[..., : 4 * 1920].any() and pupil[..., 4 * 1920 :].any()
+        o = json.loads((s.dir / "meta.json").read_text())["opening"]
+        assert o["pupil_wav_lead_frames"] == 4 and moshi.shape[-1] == 3 * 1920
+    finally:
+        loop.close()
+
+
+def test_typed_turn_queued_mid_opening_runs_and_no_stale_mic_is_heard(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+
+        def queue_mid(k):
+            if k == 2:
+                for _ in range(3):  # ahead of the typed turn: dropped at the end
+                    s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+                s.inbox.put(("type", "hi"))
+                for _ in range(2):  # behind it: dropped by handle_typed
+                    s.inbox.put(("hear", b"\x00" * FRAME_BYTES))
+                _queue_stop(s)
+
+        eng, s = _opening_session(tmp_path, loop, hook=queue_mid)
+        s.run()
+        assert eng.typed == [[10]]
+        assert eng.counters.heard == 0 and s.heard == []
+        assert eng.counters.dropped == 5
+    finally:
+        loop.close()
+
+
+def test_opening_error_midway_still_records_what_was_played(tmp_path):
+    loop = asyncio.new_event_loop()
+    try:
+
+        def boom(k):
+            if k == 3:
+                raise RuntimeError("gpu fell over")
+
+        _eng, s = _opening_session(tmp_path, loop, hook=boom)
+        s.run()
+        assert "gpu fell over" in (s.error or "")
+        assert s.opening_meta["frames"] == 2 and s.opening_meta["stopped"] is False
+        assert s.opening_meta["stem"] == "s1"
+    finally:
+        loop.close()
+
+
+def test_opening_posts_status_every_status_every_frames(tmp_path, monkeypatch):
+    monkeypatch.setattr("dual.jobs.engine.STATUS_EVERY", 2)
+    loop = asyncio.new_event_loop()
+    try:
+        _eng, s = _opening_session(tmp_path, loop, n=4)
+        _queue_stop(s)
+        s.run()
+        kinds = [unpack(m)[0] for m in _drain(loop, s.outbox) if m is not None]
+        assert kinds.count(STATUS) == 2
+    finally:
+        loop.close()
+
+
+def test_force_prefix_without_emit_uses_mimi_decode_only(monkeypatch):
+    e = _engine(monkeypatch)
+    calls = []
+    monkeypatch.setattr(e, "decode", lambda codes: calls.append(codes))
+    e.open()
+    e.force_prefix(context_steps(_base_row(), 4))
+    assert calls == []  # the plain path never touches Engine.decode
+    e.close()
+
+
+def test_serve_resolves_the_opening_before_the_model_loads(tmp_path, monkeypatch):
+    order: list[str] = []
+
+    def fake_resolve(args):
+        order.append("resolve")
+
+    def fake_load(args):
+        order.append("load")
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr("dual.jobs.engine.resolve_opening", fake_resolve)
+    monkeypatch.setattr("dual.jobs.engine.load_model", fake_load)
+    import socket
+
+    with socket.socket() as sock:  # a free port; --port 0 is refused by the parser
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    args = parse_args(["--name", "r", "--port", str(port), "--host", "127.0.0.1"])
+    with pytest.raises(RuntimeError, match="stop here"):
+        asyncio.run(serve(args, tmp_path))
+    assert order == ["resolve", "load"]

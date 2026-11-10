@@ -33,6 +33,7 @@ import pathlib
 import queue
 import signal
 import socket
+import threading
 import time
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -183,6 +184,8 @@ def pick_opening(
     """The record `--opening` names: None for "none", the first for None."""
     if stem == "none":
         return None
+    if not records:
+        raise ValueError("no holdout records; --opening none serves without an opening")
     if stem is None:
         return records[0]
     for rec in records:
@@ -191,8 +194,12 @@ def pick_opening(
     raise ValueError(f"--opening {stem!r}: no such holdout stem")
 
 
+def holdout_path(render: str) -> pathlib.Path:
+    return pathlib.Path.cwd() / "runs" / render / "render" / "holdout.jsonl"
+
+
 def read_holdout(render: str) -> list[dict[str, Any]]:
-    path = pathlib.Path.cwd() / "runs" / render / "render" / "holdout.jsonl"
+    path = holdout_path(render)
     return [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
 
 
@@ -200,7 +207,16 @@ def resolve_opening(args: argparse.Namespace) -> tuple[str, list[StepInput]] | N
     """`--opening` as (stem, its forced steps), built once; None for `none`."""
     if args.opening == "none":
         return None
-    rec = pick_opening(read_holdout(args.render), args.opening)
+    path = holdout_path(args.render)
+    try:
+        records = read_holdout(args.render)
+    except FileNotFoundError:
+        records = []
+    if not records:
+        raise ValueError(
+            f"{path}: holdout missing or empty; --opening none serves without it"
+        )
+    rec = pick_opening(records, args.opening)
     if rec is None:
         return None
     return str(rec["id"]), context_steps(rec["base"], opening_prefix(rec))
@@ -396,10 +412,12 @@ class Engine:
                 forced=int(x.text),
                 own=_col([int(c) for c in x.own if c is not None], self.device),
             )
-            voice = None if codes is None else self.decode(codes)
+            if emit is None:
+                if codes is not None:
+                    self.mimi.decode(codes)
+            else:
+                emit(got, None if codes is None else self.decode(codes))
             ids.append(got)
-            if emit is not None:
-                emit(got, voice)
         return ids
 
     def warmup(self) -> None:
@@ -561,6 +579,10 @@ def replay(
     print("summary:", json.dumps(summary))
 
 
+class _OpeningStopped(Exception):
+    """Raised from the opening's emit when stop() came in: ends the forcing early."""
+
+
 class Session:
     """One websocket's model session. The worker thread steps the model; the asyncio
     side feeds it mic frames and typed turns and sends what it posts to `outbox`."""
@@ -576,6 +598,7 @@ class Session:
         self.engine, self.spm, self.loop = engine, spm, loop
         self.opening = opening
         self.opening_meta: dict[str, Any] | None = None
+        self.stopping = threading.Event()  # set by stop(); the opening polls it
         self.name = session_name()
         self.dir = out / self.name
         self.inbox: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -605,6 +628,7 @@ class Session:
             raise ValueError(f"the page sent a server-only kind {kind}")
 
     def stop(self) -> None:
+        self.stopping.set()
         self.inbox.put(("stop", None))
 
     # the worker side
@@ -638,39 +662,53 @@ class Session:
                 self.post(None)
 
     def play_opening(self, stem: str, steps: list[StepInput]) -> None:
-        """Forces the opening's frames, posting its voice and words as they come. The
-        mic frames queued meanwhile are dropped: the pupil was listening."""
+        """Forces the opening's frames, posting its voice and words as they come. A stop
+        ends the forcing at the next frame. The mic frames queued meanwhile are
+        dropped: the pupil was listening. A typed turn queued meanwhile is kept: the
+        hears ahead of it go here, it runs in the inbox loop, and handle_typed drops
+        the hears behind it."""
         t0 = time.monotonic()
         last = t0
+        played: list[int] = []
+        stopped = False
 
         def emit(text: int, voice: bytes | None) -> None:
             nonlocal last
             now = time.monotonic()
-            row = step_row(
-                self.engine.counters.frames, "hear", text, 1000 * (now - last)
-            )
-            self.steps.append({**row, "kind": "opening"})  # STEP_KINDS lacks "opening"
+            c = self.engine.counters
+            self.steps.append(step_row(c.frames, "opening", text, 1000 * (now - last)))
+            played.append(text)
             last = now
             if voice is not None:
                 self.voiced.append(voice)
                 self.post(pack(AUDIO, voice))
             if is_word(text):
                 self.post(pack(TEXT, piece_text(self.spm.IdToPiece(text)).encode()))
+            if c.frames % STATUS_EVERY == 0:
+                self.post(c.status())
+            if self.stopping.is_set():
+                raise _OpeningStopped
 
-        ids = self.engine.force_prefix(steps, emit=emit)
-        self.opening_meta = {
-            "stem": stem,
-            "frames": len(ids),
-            "text": str(self.spm.DecodeIds(content_ids(ids))),
-            "seconds": time.monotonic() - t0,
-            "dropped": self.drop_hears(self.inbox.qsize()),
-        }
-        print(
-            f"opening {stem}: {len(ids)} frames in "
-            f"{self.opening_meta['seconds']:.1f}s, dropped "
-            f"{self.opening_meta['dropped']} mic frames",
-            flush=True,
-        )
+        try:
+            self.engine.force_prefix(steps, emit=emit)
+        except _OpeningStopped:
+            stopped = True
+        finally:  # an error midway still leaves what was played in the record
+            self.opening_meta = {
+                "stem": stem,
+                "frames": len(played),
+                "stopped": stopped,
+                "text": str(self.spm.DecodeIds(content_ids(played))),
+                "seconds": time.monotonic() - t0,
+                "dropped": self.drop_hears(self.inbox.qsize()),
+            }
+            print(
+                f"opening {stem}: {len(played)} frames in "
+                f"{self.opening_meta['seconds']:.1f}s"
+                f"{' (stopped)' if stopped else ''}, dropped "
+                f"{self.opening_meta['dropped']} mic frames",
+                flush=True,
+            )
 
     def queued_hears(self) -> int:
         """Mic frames waiting, not counting a typed turn or the stop."""
@@ -738,7 +776,13 @@ class Session:
         with (self.dir / "steps.jsonl").open("w") as f:
             for row in self.steps:
                 f.write(json.dumps(row) + "\n")
-        sphn.write_wav(str(self.dir / "pupil.wav"), wav_of(self.heard), SAMPLE_RATE)
+        # the opening played frames with no mic: pupil.wav leads with as many zero
+        # frames, so both wavs share frame 0
+        lead = 0 if self.opening_meta is None else int(self.opening_meta["frames"])
+        if self.opening_meta is not None:
+            self.opening_meta["pupil_wav_lead_frames"] = lead
+        pupil = [ZERO_FRAME] * lead + self.heard
+        sphn.write_wav(str(self.dir / "pupil.wav"), wav_of(pupil), SAMPLE_RATE)
         sphn.write_wav(str(self.dir / "moshi.wav"), wav_of(self.voiced), SAMPLE_RATE)
         c = self.engine.counters
         said = [int(r["text"]) for r in self.steps if r["kind"] == "hear"]
@@ -746,7 +790,7 @@ class Session:
             "session": self.name,
             "frames": c.frames,
             "heard": c.heard,
-            "dropped": c.dropped,
+            "dropped": c.dropped,  # includes opening["dropped"]
             "typed": self.typed_log,
             "opening": self.opening_meta,
             "hear_ms": c.hear.summary(),
